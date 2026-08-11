@@ -1,5 +1,8 @@
+import type { AnswerDocument } from "@/models/Answer";
 import type { AssessmentDocument } from "@/models/Assessment";
+import type { AttemptDocument } from "@/models/Attempt";
 import type { QuestionDocument } from "@/models/Question";
+import type { ResultDocument } from "@/models/Result";
 
 export function serializeQuestion(doc: QuestionDocument) {
   const starter =
@@ -88,3 +91,87 @@ export function displayDifficulty(value: string) {
 export function displayStatus(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
+
+/** Student-facing question payload — never includes answer keys. */
+export function serializeExamQuestion(doc: QuestionDocument) {
+  return {
+    id: doc._id.toString(),
+    code: doc.code,
+    prompt: doc.prompt,
+    type: doc.type,
+    category: doc.category,
+    difficulty: doc.difficulty,
+    points: doc.points,
+    options: (doc.options ?? []).map((o) => ({
+      key: o.key,
+      text: o.text,
+    })),
+    codingLanguages: doc.codingLanguages ?? [],
+    starterCode:
+      doc.starterCode instanceof Map
+        ? Object.fromEntries(doc.starterCode.entries())
+        : ((doc.starterCode as Record<string, string> | undefined) ?? {}),
+  };
+}
+
+export type SerializedExamQuestion = ReturnType<typeof serializeExamQuestion>;
+
+export function serializeAnswer(doc: AnswerDocument) {
+  return {
+    id: doc._id.toString(),
+    questionId: doc.questionId.toString(),
+    selectedOptionKey: doc.selectedOptionKey ?? "",
+    textAnswer: doc.textAnswer ?? "",
+    updatedAt: toIso((doc as { updatedAt?: Date }).updatedAt),
+  };
+}
+
+export type SerializedAnswer = ReturnType<typeof serializeAnswer>;
+
+export function serializeAttempt(doc: AttemptDocument) {
+  return {
+    id: doc._id.toString(),
+    studentId: doc.studentId.toString(),
+    assessmentId: doc.assessmentId.toString(),
+    status: doc.status,
+    startedAt: toIso(doc.startedAt),
+    expiresAt: toIso(doc.expiresAt),
+    submittedAt: doc.submittedAt ? toIso(doc.submittedAt) : null,
+    durationMin: doc.durationMin,
+    questionIds: (doc.questionIds ?? []).map((id) => id.toString()),
+    assessmentTitle: doc.assessmentTitle,
+    totalMarks: doc.totalMarks,
+    resultId: doc.resultId ? doc.resultId.toString() : null,
+  };
+}
+
+export type SerializedAttempt = ReturnType<typeof serializeAttempt>;
+
+export function serializeResult(doc: ResultDocument) {
+  return {
+    id: doc._id.toString(),
+    attemptId: doc.attemptId.toString(),
+    assessmentId: doc.assessmentId.toString(),
+    assessmentTitle: doc.assessmentTitle,
+    objectiveScore: doc.objectiveScore,
+    objectiveMaxMarks: doc.objectiveMaxMarks,
+    subjectivePendingCount: doc.subjectivePendingCount,
+    subjectiveMaxMarks: doc.subjectiveMaxMarks,
+    totalMarks: doc.totalMarks,
+    submittedAt: toIso(doc.submittedAt),
+    finalizedReason: doc.finalizedReason,
+    questions: (doc.questions ?? []).map((q) => ({
+      questionId: q.questionId.toString(),
+      type: q.type,
+      points: q.points,
+      awardedPoints: q.awardedPoints,
+      evalStatus: q.evalStatus,
+      selectedOptionKey: q.selectedOptionKey ?? "",
+      correctOptionKey: q.correctOptionKey ?? "",
+      textAnswer: q.textAnswer ?? "",
+      prompt: q.prompt ?? "",
+    })),
+  };
+}
+
+export type SerializedResult = ReturnType<typeof serializeResult>;

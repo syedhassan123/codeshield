@@ -2,7 +2,7 @@
 
 import { useActionState, useState, useTransition } from "react";
 import Link from "next/link";
-import { Eye, Mail, ScanFace, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, ScanFace, ShieldCheck } from "lucide-react";
 import {
   demoLoginAction,
   loginAction,
@@ -27,6 +27,7 @@ export function AuthPanel() {
     initial,
   );
   const [demoPending, startDemo] = useTransition();
+  const [showPassword, setShowPassword] = useState(false);
   const error = mode === "signin" ? loginState.error : registerState.error;
 
   return (
@@ -104,15 +105,27 @@ export function AuthPanel() {
             </Link>
           </div>
           <div className="relative mt-1.5">
-            <Eye className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               name="password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               placeholder="••••••••"
               defaultValue="password123"
-              className="pl-9"
+              className="pl-9 pr-10"
               required
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
+            </button>
           </div>
         </div>
 

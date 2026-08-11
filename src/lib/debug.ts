@@ -10,6 +10,9 @@ export type LogPrefix =
   | "AUTHORIZATION"
   | "ASSESSMENT"
   | "QUESTION"
+  | "EXAM"
+  | "ANSWER"
+  | "RESULT"
   | "MONGODB"
   | "SERVER-ACTION"
   | "SERVER-COMPONENT"
@@ -79,7 +82,10 @@ type AuthUserLike = {
 };
 
 export function createServerOp(options: {
-  domain: Extract<LogPrefix, "ASSESSMENT" | "QUESTION" | "AUTH" | "SESSION">;
+  domain: Extract<
+    LogPrefix,
+    "ASSESSMENT" | "QUESTION" | "AUTH" | "SESSION" | "EXAM" | "ANSWER" | "RESULT"
+  >;
   operation: string;
   source?: "SERVER-ACTION" | "SERVER-COMPONENT" | "API";
   resourceId?: string;

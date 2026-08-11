@@ -63,3 +63,7 @@ export async function requireRole(roles: UserRole[]) {
 export async function requireAdmin() {
   return requireRole(["admin"]);
 }
+
+export async function requireStudent() {
+  return requireRole(["student"]);
+}

@@ -1,13 +1,12 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Camera, Mic, Wifi } from "lucide-react";
 import mongoose from "mongoose";
+import { ExamGateClient } from "@/components/exam/exam-gate-client";
 import { connectDB } from "@/lib/db";
 import { createServerOp, maskId } from "@/lib/debug";
 import { requirePageRole } from "@/lib/safe-auth";
-import { displayType, serializeAssessment } from "@/lib/serializers";
+import { serializeAssessment } from "@/lib/serializers";
 import { Assessment } from "@/models/Assessment";
-import { Button } from "@/components/ui/button";
+import { Attempt } from "@/models/Attempt";
 
 export default async function ExamGatePage({
   params,
@@ -16,8 +15,8 @@ export default async function ExamGatePage({
 }) {
   const { id } = await params;
   const op = createServerOp({
-    domain: "ASSESSMENT",
-    operation: "STUDENT_EXAM_GATE",
+    domain: "EXAM",
+    operation: "GATE",
     source: "SERVER-COMPONENT",
     resourceId: id,
   });
@@ -51,71 +50,36 @@ export default async function ExamGatePage({
     notFound();
   }
 
+  const active = await op.runMongo("find active attempt", () =>
+    Attempt.findOne({
+      studentId,
+      assessmentId: doc._id,
+      status: "in_progress",
+    }),
+  );
+
+  const latestClosed = await op.runMongo("find latest closed attempt", () =>
+    Attempt.findOne({
+      studentId,
+      assessmentId: doc._id,
+      status: { $in: ["submitted", "expired"] },
+    }).sort({ submittedAt: -1 }),
+  );
+
   const assessment = serializeAssessment(doc, {
     questionCount: doc.questionIds?.length ?? 0,
   });
-  op.success({ resourceId: maskId(String(doc._id)), code: doc.code });
+  op.success({
+    resourceId: maskId(String(doc._id)),
+    code: doc.code,
+    activeAttempt: Boolean(active),
+  });
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-background relative">
-      <div className="absolute inset-0 grid-bg opacity-50 pointer-events-none" />
-      <div className="relative card-soft p-8 max-w-lg w-full shadow-elevated">
-        <h1 className="font-display font-bold text-2xl">{assessment.title}</h1>
-        <p className="text-sm text-muted-foreground mt-2">
-          {displayType(assessment.type)} · {assessment.durationMin} min ·{" "}
-          {assessment.questionCount} questions
-        </p>
-        {assessment.description && (
-          <p className="text-sm text-muted-foreground mt-3">
-            {assessment.description}
-          </p>
-        )}
-
-        <div className="mt-6">
-          <h2 className="font-semibold mb-3">Secure exam environment</h2>
-          <ul className="space-y-2 text-sm text-muted-foreground">
-            {(assessment.instructions
-              ? assessment.instructions.split("\n").filter(Boolean)
-              : [
-                  "You will be monitored by AI proctoring (face, eye, behavior)",
-                  "Tab switching, copy/paste, right-click and dev tools are disabled",
-                  "Violations may auto-submit your exam",
-                  "Stay in full-screen until you finish",
-                ]
-            ).map((line) => (
-              <li key={line}>• {line.replace(/^•\s*/, "")}</li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="mt-6 grid grid-cols-3 gap-3">
-          {[
-            { icon: Camera, label: "Camera" },
-            { icon: Mic, label: "Microphone" },
-            { icon: Wifi, label: "Network" },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="rounded-xl border border-border p-3 text-center"
-            >
-              <item.icon className="w-5 h-5 mx-auto text-primary" />
-              <div className="text-[11px] font-semibold mt-2">{item.label}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-6 flex gap-3">
-          <Button asChild variant="outline" className="flex-1">
-            <Link href="/student">Cancel</Link>
-          </Button>
-          <Button className="flex-1" disabled>
-            I Agree · Start Exam
-          </Button>
-        </div>
-        <p className="text-[11px] text-muted-foreground text-center mt-3">
-          Exam session delivery comes in a later phase.
-        </p>
-      </div>
-    </div>
+    <ExamGateClient
+      assessment={assessment}
+      activeAttemptId={active?._id.toString() ?? null}
+      latestResultAttemptId={latestClosed?._id.toString() ?? null}
+    />
   );
 }

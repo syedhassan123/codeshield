@@ -23,7 +23,10 @@ export default async function StudentLayout({
       role="student"
       userName={session?.user?.name || "Student"}
       nav={nav}
-      fullscreenPrefixes={["/student/exam/", "/student/code/"]}
+      fullscreenPrefixes={[
+        "/student/exam/",
+        "/student/code/",
+      ]}
     >
       {children}
     </RoleLayoutClient>

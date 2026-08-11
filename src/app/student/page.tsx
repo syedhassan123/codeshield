@@ -17,7 +17,6 @@ import { mockInterviews, mockNotifications } from "@/lib/mock-data";
 export default async function StudentDashboardPage() {
   const session = await auth();
   const first = session?.user?.name?.split(" ")[0] || "there";
-  console.log(session?.user)
 
   let upcoming: ReturnType<typeof serializeAssessment>[] = [];
   try {
