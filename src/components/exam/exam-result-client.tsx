@@ -16,6 +16,7 @@ export function ExamResultClient({
   const submittedLabel = new Date(result.submittedAt).toLocaleString();
   const statusLabel =
     attempt.status === "expired" ? "Time expired" : "Submitted";
+  const evaluationPending = result.evaluationStatus === "pending";
 
   return (
     <div className="min-h-screen bg-background relative p-6">
@@ -33,47 +34,39 @@ export function ExamResultClient({
             {result.finalizedReason === "expired" ? " · auto-submitted" : ""}
           </p>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
-            <div className="rounded-xl border border-border p-3">
-              <div className="text-[11px] text-muted-foreground">
-                Objective score
-              </div>
-              <div className="font-display font-bold text-xl mt-1">
-                {result.objectiveScore}
-                <span className="text-sm text-muted-foreground font-medium">
-                  {" "}
-                  / {result.objectiveMaxMarks}
-                </span>
-              </div>
-            </div>
-            <div className="rounded-xl border border-border p-3">
-              <div className="text-[11px] text-muted-foreground">
-                Total marks
-              </div>
-              <div className="font-display font-bold text-xl mt-1">
-                {result.totalMarks}
-              </div>
-            </div>
-            <div className="rounded-xl border border-border p-3">
-              <div className="text-[11px] text-muted-foreground">
-                Pending subjective
-              </div>
-              <div className="font-display font-bold text-xl mt-1">
-                {result.subjectivePendingCount}
-              </div>
-            </div>
-            <div className="rounded-xl border border-border p-3">
-              <div className="text-[11px] text-muted-foreground">Status</div>
-              <div className="font-display font-bold text-lg mt-1 capitalize">
-                {attempt.status.replace("_", " ")}
-              </div>
-            </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-6">
+            <ScoreCard
+              label="Objective"
+              value={`${result.objectiveScore} / ${result.objectiveMaxMarks}`}
+            />
+            <ScoreCard
+              label="Subjective"
+              value={`${result.subjectiveScore} / ${result.subjectiveMaxMarks}`}
+            />
+            <ScoreCard
+              label="Coding"
+              value={`${result.codingScore} / ${result.codingMaxMarks}`}
+            />
+            <ScoreCard
+              label="Final score"
+              value={`${result.finalScore} / ${result.totalMarks}`}
+            />
+            <ScoreCard
+              label="Evaluation"
+              value={
+                evaluationPending ? "Pending" : "Completed"
+              }
+            />
+            <ScoreCard
+              label="Attempt"
+              value={attempt.status.replace("_", " ")}
+            />
           </div>
 
-          {result.subjectiveMaxMarks > 0 && (
+          {evaluationPending && (
             <p className="text-sm text-muted-foreground mt-4">
-              Subjective / coding answers ({result.subjectiveMaxMarks} marks)
-              are saved and pending evaluation. AI grading is not applied yet.
+              Some subjective/coding answers are still pending admin evaluation.
+              Your final score will update when grading is complete.
             </p>
           )}
 
@@ -104,6 +97,7 @@ export function ExamResultClient({
                     q.evalStatus === "correct" && "text-success",
                     q.evalStatus === "incorrect" && "text-danger",
                     q.evalStatus === "pending_evaluation" && "text-primary",
+                    q.evalStatus === "manually_graded" && "text-success",
                   )}
                 >
                   {q.evalStatus === "correct" &&
@@ -111,6 +105,8 @@ export function ExamResultClient({
                   {q.evalStatus === "incorrect" && "Incorrect"}
                   {q.evalStatus === "pending_evaluation" &&
                     "Pending evaluation"}
+                  {q.evalStatus === "manually_graded" &&
+                    `Graded (+${q.awardedPoints})`}
                   {q.evalStatus === "ungraded" && "Ungraded"}
                 </span>
               </div>
@@ -133,13 +129,32 @@ export function ExamResultClient({
                   </p>
                 </div>
               ) : (
-                <pre className="mt-2 text-sm whitespace-pre-wrap rounded-lg bg-muted/50 p-3">
-                  {q.textAnswer.trim() || "No answer submitted."}
-                </pre>
+                <>
+                  <pre className="mt-2 text-sm whitespace-pre-wrap rounded-lg bg-muted/50 p-3">
+                    {q.textAnswer.trim() || "No answer submitted."}
+                  </pre>
+                  {q.feedback?.trim() && (
+                    <p className="mt-2 text-sm">
+                      <span className="font-semibold">Feedback: </span>
+                      {q.feedback}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ScoreCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border p-3">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="font-display font-bold text-xl mt-1 capitalize">
+        {value}
       </div>
     </div>
   );

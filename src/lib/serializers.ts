@@ -148,6 +148,14 @@ export function serializeAttempt(doc: AttemptDocument) {
 export type SerializedAttempt = ReturnType<typeof serializeAttempt>;
 
 export function serializeResult(doc: ResultDocument) {
+  const subjectiveScore = doc.subjectiveScore ?? 0;
+  const codingScore = doc.codingScore ?? 0;
+  const codingMaxMarks = doc.codingMaxMarks ?? 0;
+  const evaluationStatus = doc.evaluationStatus ?? "pending";
+  const finalScore =
+    doc.finalScore ??
+    doc.objectiveScore + subjectiveScore + codingScore;
+
   return {
     id: doc._id.toString(),
     attemptId: doc.attemptId.toString(),
@@ -155,11 +163,20 @@ export function serializeResult(doc: ResultDocument) {
     assessmentTitle: doc.assessmentTitle,
     objectiveScore: doc.objectiveScore,
     objectiveMaxMarks: doc.objectiveMaxMarks,
-    subjectivePendingCount: doc.subjectivePendingCount,
+    subjectiveScore,
     subjectiveMaxMarks: doc.subjectiveMaxMarks,
+    codingScore,
+    codingMaxMarks,
+    subjectivePendingCount: doc.subjectivePendingCount,
+    finalScore,
     totalMarks: doc.totalMarks,
+    evaluationStatus,
     submittedAt: toIso(doc.submittedAt),
     finalizedReason: doc.finalizedReason,
+    lastGradedAt: doc.lastGradedAt ? toIso(doc.lastGradedAt) : null,
+    evaluationCompletedAt: doc.evaluationCompletedAt
+      ? toIso(doc.evaluationCompletedAt)
+      : null,
     questions: (doc.questions ?? []).map((q) => ({
       questionId: q.questionId.toString(),
       type: q.type,
@@ -170,6 +187,8 @@ export function serializeResult(doc: ResultDocument) {
       correctOptionKey: q.correctOptionKey ?? "",
       textAnswer: q.textAnswer ?? "",
       prompt: q.prompt ?? "",
+      feedback: q.feedback ?? "",
+      gradedAt: q.gradedAt ? toIso(q.gradedAt) : null,
     })),
   };
 }

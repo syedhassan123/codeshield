@@ -13,6 +13,9 @@ export type LogPrefix =
   | "EXAM"
   | "ANSWER"
   | "RESULT"
+  | "ATTEMPT"
+  | "GRADING"
+  | "SCORE"
   | "MONGODB"
   | "SERVER-ACTION"
   | "SERVER-COMPONENT"
@@ -84,7 +87,16 @@ type AuthUserLike = {
 export function createServerOp(options: {
   domain: Extract<
     LogPrefix,
-    "ASSESSMENT" | "QUESTION" | "AUTH" | "SESSION" | "EXAM" | "ANSWER" | "RESULT"
+    | "ASSESSMENT"
+    | "QUESTION"
+    | "AUTH"
+    | "SESSION"
+    | "EXAM"
+    | "ANSWER"
+    | "RESULT"
+    | "ATTEMPT"
+    | "GRADING"
+    | "SCORE"
   >;
   operation: string;
   source?: "SERVER-ACTION" | "SERVER-COMPONENT" | "API";

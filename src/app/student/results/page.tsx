@@ -5,6 +5,7 @@ import { requirePageRole } from "@/lib/safe-auth";
 import { serializeResult } from "@/lib/serializers";
 import { Result } from "@/models/Result";
 import { PageHeader } from "@/components/ui/page-header";
+import { cn } from "@/lib/utils";
 
 export default async function StudentResultsPage() {
   const op = createServerOp({
@@ -34,8 +35,9 @@ export default async function StudentResultsPage() {
           <thead>
             <tr className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
               <th className="text-left py-3 px-4">Assessment</th>
-              <th className="text-left py-3 px-4">Objective score</th>
-              <th className="text-left py-3 px-4">Pending</th>
+              <th className="text-left py-3 px-4">Objective</th>
+              <th className="text-left py-3 px-4">Final</th>
+              <th className="text-left py-3 px-4">Evaluation</th>
               <th className="text-left py-3 px-4">Submitted</th>
               <th className="text-left py-3 px-4">Action</th>
             </tr>
@@ -51,9 +53,19 @@ export default async function StudentResultsPage() {
                   {r.objectiveScore} / {r.objectiveMaxMarks}
                 </td>
                 <td className="py-3 px-4">
-                  {r.subjectivePendingCount > 0
-                    ? `${r.subjectivePendingCount} subjective`
-                    : "—"}
+                  {r.finalScore} / {r.totalMarks}
+                </td>
+                <td className="py-3 px-4">
+                  <span
+                    className={cn(
+                      "text-xs font-semibold capitalize",
+                      r.evaluationStatus === "completed"
+                        ? "text-success"
+                        : "text-primary",
+                    )}
+                  >
+                    {r.evaluationStatus}
+                  </span>
                 </td>
                 <td className="py-3 px-4">
                   {new Date(r.submittedAt).toLocaleString()}
@@ -71,7 +83,7 @@ export default async function StudentResultsPage() {
             {!results.length && (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="py-8 px-4 text-center text-muted-foreground"
                 >
                   No results yet. Complete an assessment to see scores here.

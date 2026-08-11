@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { ActionError } from "@/lib/auth-guards";
 import { debugLog } from "@/lib/debug";
+import { recalculateResultScores } from "@/lib/exam/score";
 import { Answer } from "@/models/Answer";
 import type { AttemptDocument } from "@/models/Attempt";
 import { Attempt } from "@/models/Attempt";
@@ -44,11 +45,6 @@ export async function finalizeAttempt(
   });
   const questionById = new Map(questions.map((q) => [q._id.toString(), q]));
 
-  let objectiveScore = 0;
-  let objectiveMaxMarks = 0;
-  let subjectivePendingCount = 0;
-  let subjectiveMaxMarks = 0;
-
   const resultQuestions = (attempt.questionIds ?? []).map((qid) => {
     const id = qid.toString();
     const question = questionById.get(id);
@@ -59,14 +55,12 @@ export async function finalizeAttempt(
     const textAnswer = answer?.textAnswer ?? "";
 
     if (type === "mcq") {
-      objectiveMaxMarks += points;
       const correctKey = question?.correctOptionKey ?? "";
       const isCorrect =
         Boolean(selectedOptionKey) &&
         Boolean(correctKey) &&
         selectedOptionKey === correctKey;
       const awardedPoints = isCorrect ? points : 0;
-      objectiveScore += awardedPoints;
       const evalStatus: AnswerEvalStatus = !selectedOptionKey
         ? "incorrect"
         : isCorrect
@@ -83,12 +77,11 @@ export async function finalizeAttempt(
         correctOptionKey: correctKey,
         textAnswer: "",
         prompt: question?.prompt ?? "",
+        feedback: "",
+        gradedBy: null,
+        gradedAt: null,
       };
     }
-
-    // Subjective + coding: pending evaluation (no AI / runner yet).
-    subjectiveMaxMarks += points;
-    subjectivePendingCount += 1;
 
     return {
       questionId: qid,
@@ -100,11 +93,14 @@ export async function finalizeAttempt(
       correctOptionKey: "",
       textAnswer,
       prompt: question?.prompt ?? "",
+      feedback: "",
+      gradedBy: null,
+      gradedAt: null,
     };
   });
 
+  const scores = recalculateResultScores(resultQuestions);
   const submittedAt = new Date();
-  const totalMarks = objectiveMaxMarks + subjectiveMaxMarks;
 
   const result = await Result.findOneAndUpdate(
     { attemptId: attempt._id },
@@ -116,14 +112,12 @@ export async function finalizeAttempt(
       },
       $set: {
         assessmentTitle: attempt.assessmentTitle,
-        objectiveScore,
-        objectiveMaxMarks,
-        subjectivePendingCount,
-        subjectiveMaxMarks,
-        totalMarks,
+        ...scores,
         questions: resultQuestions,
         submittedAt,
         finalizedReason: reason,
+        evaluationCompletedAt:
+          scores.evaluationStatus === "completed" ? submittedAt : null,
       },
     },
     { upsert: true, returnDocument: "after" },
@@ -144,9 +138,8 @@ export async function finalizeAttempt(
   debugLog("RESULT", "CREATED", {
     attemptId: attempt._id.toString().slice(0, 8),
     reason,
-    objectiveScore,
-    objectiveMaxMarks,
-    subjectivePendingCount,
+    objectiveScore: scores.objectiveScore,
+    evaluationStatus: scores.evaluationStatus.toUpperCase(),
   });
 
   return updated ?? (await Attempt.findById(attempt._id))!;
