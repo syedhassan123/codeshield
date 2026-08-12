@@ -66,20 +66,19 @@ export default async function ExamGatePage({
     }).sort({ submittedAt: -1 }),
   );
 
-  const assessment = serializeAssessment(doc, {
-    questionCount: doc.questionIds?.length ?? 0,
-  });
-  op.success({
-    resourceId: maskId(String(doc._id)),
-    code: doc.code,
-    activeAttempt: Boolean(active),
+  const payload = op.respond({
+    assessment: serializeAssessment(doc, {
+      questionCount: doc.questionIds?.length ?? 0,
+    }),
+    activeAttemptId: active?._id.toString() ?? null,
+    latestResultAttemptId: latestClosed?._id.toString() ?? null,
   });
 
   return (
     <ExamGateClient
-      assessment={assessment}
-      activeAttemptId={active?._id.toString() ?? null}
-      latestResultAttemptId={latestClosed?._id.toString() ?? null}
+      assessment={payload.assessment}
+      activeAttemptId={payload.activeAttemptId}
+      latestResultAttemptId={payload.latestResultAttemptId}
     />
   );
 }

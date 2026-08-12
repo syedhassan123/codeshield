@@ -2,50 +2,67 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
-import { sendOtpAction, verifyOtpAction } from "@/lib/actions/auth";
+import {
+  sendRegistrationOtpAction,
+  verifyRegistrationOtpAction,
+} from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 
-export function VerifyOtpClient({ email }: { email?: string | null }) {
-  const router = useRouter();
-  const { update } = useSession();
+export function VerifyOtpClient({
+  email,
+  justRegistered = false,
+}: {
+  email?: string | null;
+  justRegistered?: boolean;
+}) {
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
   const [seconds, setSeconds] = useState(60);
   const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
+  const [info, setInfo] = useState(
+    justRegistered
+      ? "Account created successfully. We've sent a verification code to your email."
+      : "",
+  );
   const [pending, startTransition] = useTransition();
   const refs = useRef<Array<HTMLInputElement | null>>([]);
   const verifying = useRef(false);
   const sendStarted = useRef(false);
 
   const sendCode = (isResend = false) => {
+    if (!email) {
+      setError("Missing email. Please return to registration.");
+      return;
+    }
     if (!isResend && sendStarted.current) return;
     if (!isResend) sendStarted.current = true;
 
     setError("");
     startTransition(async () => {
-      const result = await sendOtpAction();
+      const result = await sendRegistrationOtpAction({ email });
+
       if ("error" in result && result.error) {
         setError(result.error);
         if (!isResend) sendStarted.current = false;
-        return;
-      }
-      if ("alreadyVerified" in result && result.alreadyVerified) {
-        window.location.assign("/");
         return;
       }
       setSeconds(60);
       const successMessage =
         "message" in result && result.message
           ? result.message
-          : "Verification code sent.";
-      setInfo(isResend ? "A new code was sent." : successMessage);
+          : "We've sent a verification code to your email.";
+      if (!justRegistered || isResend) {
+        setInfo(isResend ? "A new code was sent." : successMessage);
+      }
     });
   };
 
   useEffect(() => {
+    // Registration OTP is already issued during registerAction.
+    if (justRegistered) {
+      sendStarted.current = true;
+      return;
+    }
     sendCode(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -61,29 +78,27 @@ export function VerifyOtpClient({ email }: { email?: string | null }) {
     setError("");
     startTransition(async () => {
       try {
-        const result = await verifyOtpAction({ code });
+        if (!email) {
+          setError("Missing email. Please return to registration.");
+          verifying.current = false;
+          return;
+        }
+        const result = await verifyRegistrationOtpAction({ email, code });
         if ("error" in result && result.error) {
           setError(result.error);
           verifying.current = false;
           return;
         }
-
-        // Sync JWT from DB (ignores forged client otpVerified flags).
-        const session = await update({ refreshOtpStatus: true });
+        setInfo(
+          "message" in result && result.message
+            ? result.message
+            : "Email verified successfully. Please log in to continue.",
+        );
         const redirectTo =
           "redirectTo" in result && result.redirectTo
             ? result.redirectTo
-            : "/";
-
-        if (!session?.user?.otpVerified) {
-          setError(
-            "Code accepted, but session sync failed. Please try again or refresh.",
-          );
-          verifying.current = false;
-          return;
-        }
-
-        // Full navigation so middleware sees updated JWT cookie.
+            : "/?verified=1";
+        // No session.update — registration must not create an Auth.js session.
         window.location.assign(redirectTo);
       } catch {
         setError("Verification failed. Try again.");
@@ -125,10 +140,14 @@ export function VerifyOtpClient({ email }: { email?: string | null }) {
           </div>
           <h1 className="font-display font-bold text-2xl">Verify your email</h1>
           <p className="text-sm text-muted-foreground mt-2">
-            Enter the 6-digit code we sent to{" "}
-            <span className="font-semibold text-foreground">
-              {email || "your email"}
-            </span>
+            Enter the 6-digit verification code sent to your email.
+            {email ? (
+              <>
+                {" "}
+                We sent it to{" "}
+                <span className="font-semibold text-foreground">{email}</span>.
+              </>
+            ) : null}
           </p>
 
           <div className="mt-6 flex gap-2 justify-between">
@@ -171,7 +190,7 @@ export function VerifyOtpClient({ email }: { email?: string | null }) {
               <button
                 type="button"
                 className="text-primary font-semibold hover:underline disabled:opacity-50"
-                disabled={pending}
+                disabled={pending || !email}
                 onClick={() => sendCode(true)}
               >
                 Resend code
@@ -184,7 +203,7 @@ export function VerifyOtpClient({ email }: { email?: string | null }) {
             disabled={pending || digits.some((d) => !d)}
             onClick={() => submitCode(digits.join(""))}
           >
-            {pending ? "Verifying…" : "Verify & continue"}
+            {pending ? "Verifying…" : "Verify email"}
           </Button>
         </div>
       </div>

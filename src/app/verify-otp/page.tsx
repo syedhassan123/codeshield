@@ -1,7 +1,29 @@
-import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { VerifyOtpClient } from "@/components/auth/verify-otp-client";
 
-export default async function VerifyOtpPage() {
-  const session = await auth();
-  return <VerifyOtpClient email={session?.user?.email} />;
+type SearchParams = {
+  email?: string;
+  purpose?: string;
+  registered?: string;
+};
+
+/** Registration email verification only — login no longer uses OTP. */
+export default async function VerifyOtpPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const params = await searchParams;
+  const email = params.email?.trim() || null;
+
+  if (!email) {
+    redirect("/");
+  }
+
+  return (
+    <VerifyOtpClient
+      email={email}
+      justRegistered={params.registered === "1"}
+    />
+  );
 }

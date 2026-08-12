@@ -2,6 +2,7 @@
 
 import bcrypt from "bcryptjs";
 import { AuthError } from "next-auth";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth, homeForRole, signIn, signOut } from "@/lib/auth";
 import { ActionError } from "@/lib/auth-guards";
@@ -10,10 +11,16 @@ import {
   createServerOp,
   debugError,
   debugLog,
+  isVerboseDebugEnabled,
   maskEmail,
   maskId,
 } from "@/lib/debug";
-import { issueEmailOtp, verifyEmailOtp } from "@/lib/otp/service";
+import {
+  authFlowLog,
+  issueEmailOtp,
+  issueRegistrationOtpByEmail,
+  verifyRegistrationOtpByEmail,
+} from "@/lib/otp/service";
 import { User } from "@/models/User";
 import { USER_ROLES, type UserRole } from "@/types/user";
 
@@ -29,8 +36,13 @@ const registerSchema = z.object({
   role: z.enum(USER_ROLES).default("student"),
 });
 
-const otpCodeSchema = z.object({
+const registrationOtpSchema = z.object({
+  email: z.string().email(),
   code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code."),
+});
+
+const registrationEmailSchema = z.object({
+  email: z.string().email(),
 });
 
 export type AuthActionState = {
@@ -42,6 +54,11 @@ function toAuthError(error: unknown) {
   if (error instanceof ActionError) return { error: error.message };
   if (error instanceof Error) return { error: error.message };
   return { error: "Something went wrong." };
+}
+
+function flowLog(tag: string, message: string) {
+  if (!isVerboseDebugEnabled()) return;
+  console.log(`[${tag}] ${message}`);
 }
 
 export async function loginAction(
@@ -64,16 +81,39 @@ export async function loginAction(
     return { error: "Enter a valid email and password." };
   }
 
+  flowLog("LOGIN", "Credentials authentication started");
   debugLog("AUTH", "login_action_start", {
     email: maskEmail(parsed.data.email),
   });
 
   try {
+    await connectDB();
+    const user = await User.findOne({
+      email: parsed.data.email.toLowerCase(),
+    });
+
+    if (user) {
+      const valid = await bcrypt.compare(
+        parsed.data.password,
+        user.passwordHash,
+      );
+      if (valid && user.emailVerified === false) {
+        op.fail("email_not_verified");
+        await issueEmailOtp(user._id.toString(), "registration");
+        redirect(
+          `/verify-otp?purpose=registration&email=${encodeURIComponent(user.email)}`,
+        );
+      }
+    }
+
+    const role = (user?.role as UserRole | undefined) || "student";
+    const redirectTo = homeForRole(role);
+
     await signIn("credentials", {
       email: parsed.data.email,
       password: parsed.data.password,
       skipVerification: "false",
-      redirectTo: "/verify-otp",
+      redirectTo,
     });
   } catch (error) {
     if (error instanceof AuthError) {
@@ -109,6 +149,7 @@ export async function registerAction(
     return { error: "Check your details and try again." };
   }
 
+  flowLog("REGISTER", "Account creation started");
   debugLog("AUTH", "register_action_start", {
     email: maskEmail(parsed.data.email),
     role: parsed.data.role.toUpperCase(),
@@ -127,13 +168,14 @@ export async function registerAction(
     }
 
     const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-    await op.runMongo("create user", () =>
+    const created = await op.runMongo("create user", () =>
       User.create({
         email: parsed.data.email.toLowerCase(),
         passwordHash,
         name: parsed.data.name,
         role: parsed.data.role,
         status: "active",
+        emailVerified: false,
         avatar: parsed.data.name
           .split(" ")
           .map((p) => p[0])
@@ -143,22 +185,24 @@ export async function registerAction(
       }),
     );
 
-    await signIn("credentials", {
-      email: parsed.data.email,
-      password: parsed.data.password,
-      skipVerification: "false",
-      redirectTo: "/verify-otp",
-    });
+    flowLog("REGISTER", "Account created");
+
+    await issueEmailOtp(created._id.toString(), "registration");
+
+    flowLog("AUTH", "Registration session NOT created");
+    flowLog("AUTH", "Redirecting to OTP verification");
+    op.success({ email: maskEmail(parsed.data.email) });
+
+    redirect(
+      `/verify-otp?purpose=registration&email=${encodeURIComponent(parsed.data.email.toLowerCase())}&registered=1`,
+    );
   } catch (error) {
     if (error instanceof AuthError) {
-      op.fail(error, { reason: "sign_in_after_register_failed" });
-      return { error: "Account created but sign-in failed. Try logging in." };
+      op.fail(error, { reason: "register_failed" });
+      return { error: "Registration failed. Please try again." };
     }
     throw error;
   }
-
-  op.success({ email: maskEmail(parsed.data.email) });
-  return {};
 }
 
 export async function demoLoginAction(role: UserRole) {
@@ -190,41 +234,40 @@ export async function demoLoginAction(role: UserRole) {
   op.success({ role: role.toUpperCase(), email: maskEmail(creds.email) });
 }
 
-/** Send / resend email OTP for the authenticated (pre-OTP) session. */
+/** Login OTP is disabled — registration OTP only. */
 export async function sendOtpAction() {
+  return {
+    error: "Login OTP is not required. Sign in with your email and password.",
+  };
+}
+
+/** Send / resend registration OTP (no Auth.js session). */
+export async function sendRegistrationOtpAction(raw: unknown) {
   const op = createServerOp({
     domain: "AUTH",
-    operation: "SEND_OTP",
+    operation: "SEND_REGISTRATION_OTP",
     source: "SERVER-ACTION",
   });
 
   try {
-    const session = await auth();
-    op.auth(session?.user);
-    if (!session?.user?.id) {
-      op.denied("unauthenticated");
-      return { error: "You must be signed in." };
-    }
-    if (session.user.otpVerified) {
-      op.success({ alreadyVerified: true });
-      return { success: true, alreadyVerified: true as const };
+    const parsed = registrationEmailSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { error: "Enter a valid email address." };
     }
 
-    op.allowed("send otp");
     await connectDB();
-    const result = await issueEmailOtp(session.user.id);
+    const result = await issueRegistrationOtpByEmail(parsed.data.email);
     op.success({
       delivered: result.delivered,
       mode: result.mode,
       reused: "reused" in result ? result.reused : false,
     });
 
-    let message =
-      "Verification code generated. Check server logs if SMTP is not configured (dev).";
+    let message = "We've sent a verification code to your email.";
     if ("reused" in result && result.reused) {
       message = "A code was already sent. Please wait before requesting another.";
     } else if (result.delivered) {
-      message = "Verification code sent to your email.";
+      message = "We've sent a verification code to your email.";
     }
 
     return {
@@ -240,38 +283,97 @@ export async function sendOtpAction() {
   }
 }
 
-/** Verify OTP server-side and mark session eligible for otpVerified sync. */
-export async function verifyOtpAction(raw: unknown) {
+/** Login OTP is disabled — registration OTP only. */
+export async function verifyOtpAction(_raw: unknown) {
+  return {
+    // const op = createServerOp({
+    //   domain: "AUTH",
+    //   operation: "SEND_OTP",
+    //   source: "SERVER-ACTION",
+    // });
+  
+    // try {
+    //   const session = await auth();
+    //   op.auth(session?.user);
+    //   if (!session?.user?.id) {
+    //     op.denied("unauthenticated");
+    //     return { error: "You must be signed in." };
+    //   }
+    //   if (session.user.otpVerified) {
+    //     op.success({ alreadyVerified: true });
+    //     return { success: true, alreadyVerified: true as const };
+    //   }
+  
+    //   op.allowed("send otp");
+    //   await connectDB();
+    //   const result = await issueEmailOtp(session.user.id, "login");
+    //   op.success({
+    //     delivered: result.delivered,
+    //     mode: result.mode,
+    //     reused: "reused" in result ? result.reused : false,
+    //   });
+  
+    //   let message =
+    //     "Verification code generated. Check server logs if SMTP is not configured (dev).";
+    //   if ("reused" in result && result.reused) {
+    //     message = "A code was already sent. Please wait before requesting another.";
+    //   } else if (result.delivered) {
+    //     message = "Verification code sent to your email.";
+    //   }
+  
+    //   return {
+    //     success: true as const,
+    //     expiresAt: result.expiresAt,
+    //     resendAvailableAt: result.resendAvailableAt,
+    //     delivered: result.delivered,
+    //     message,
+    //   };
+    // } catch (error) {
+    //   op.fail(error);
+    //   return toAuthError(error);
+    // }
+    error: "Login OTP is not required. Sign in with your email and password.",
+  };
+}
+
+/**
+ * Verify registration OTP — sets emailVerified=true.
+ * Does NOT create an Auth.js session. Redirects to login.
+ */
+export async function verifyRegistrationOtpAction(raw: unknown) {
   const op = createServerOp({
     domain: "AUTH",
-    operation: "VERIFY_OTP",
+    operation: "VERIFY_REGISTRATION_OTP",
     source: "SERVER-ACTION",
   });
 
   try {
-    const session = await auth();
-    op.auth(session?.user);
-    if (!session?.user?.id) {
-      op.denied("unauthenticated");
-      return { error: "You must be signed in." };
-    }
-
-    const parsed = otpCodeSchema.safeParse(raw);
+    const parsed = registrationOtpSchema.safeParse(raw);
     if (!parsed.success) {
-      return { error: parsed.error.issues[0]?.message || "Invalid code." };
+      return {
+        error:
+          parsed.error.issues[0]?.message ||
+          "Enter a valid email and 6-digit code.",
+      };
     }
 
-    op.allowed("verify otp");
+    authFlowLog("OTP", "Registration verification started");
     await connectDB();
-    await verifyEmailOtp(session.user.id, parsed.data.code);
+    await verifyRegistrationOtpByEmail(parsed.data.email, parsed.data.code);
+
+    authFlowLog("OTP", "Registration verification SUCCESS");
+    flowLog("AUTH", "Registration session NOT created");
+    flowLog("AUTH", "Redirecting to login");
 
     op.success({
-      id: maskId(session.user.id),
-      redirectTo: homeForRole(session.user.role),
+      email: maskEmail(parsed.data.email),
+      redirectTo: "/?verified=1",
     });
+
     return {
       success: true as const,
-      redirectTo: homeForRole(session.user.role),
+      message: "Email verified successfully. Please log in to continue.",
+      redirectTo: "/?verified=1",
     };
   } catch (error) {
     op.fail(error);
@@ -298,11 +400,7 @@ export async function completeFaceAction() {
     return { error: "Not authenticated" };
   }
 
-  if (!session.user.otpVerified) {
-    op.denied("otp_required");
-    return { error: "Complete email OTP verification first." };
-  }
-
+  // Face is optional (exam/proctoring). It must not gate normal login.
   op.allowed();
   try {
     await connectDB();

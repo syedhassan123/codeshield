@@ -30,6 +30,7 @@ async function main() {
   await issueEmailOtp(user!._id.toString());
   const active = await EmailOtp.findOne({
     userId: user!._id,
+    purpose: "login",
     consumedAt: null,
   }).sort({ createdAt: -1 });
   assert(active, "active otp created");
@@ -50,6 +51,7 @@ async function main() {
   await EmailOtp.create({
     userId: user!._id,
     email: user!.email,
+    purpose: "login",
     codeHash: hashOtpCode(known, user!.email),
     expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     attempts: 0,
@@ -67,6 +69,7 @@ async function main() {
   await EmailOtp.create({
     userId: user!._id,
     email: user!.email,
+    purpose: "login",
     codeHash: hashOtpCode("654321", user!.email),
     expiresAt: new Date(Date.now() - 1000),
     attempts: 0,
@@ -87,6 +90,7 @@ async function main() {
   await EmailOtp.create({
     userId: user!._id,
     email: user!.email,
+    purpose: "login",
     codeHash: hashOtpCode("111222", user!.email),
     expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     attempts: 0,

@@ -4,13 +4,13 @@ import { authConfig, homeForRole } from "@/lib/auth.config";
 
 const { auth } = NextAuth(authConfig);
 
-const publicPaths = ["/", "/forgot-password"];
+/** Public surfaces (no Auth.js session required). */
+const publicPaths = ["/", "/forgot-password", "/verify-otp"];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
   const isLoggedIn = Boolean(session?.user);
-  const otpVerified = Boolean(session?.user?.otpVerified);
   const role = session?.user?.role;
 
   const isPublic = publicPaths.includes(pathname);
@@ -27,17 +27,13 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/", req.nextUrl.origin));
   }
 
-  // Production auth gate: Email/password session + OTP only (face optional).
-  if (!otpVerified) {
-    if (pathname === "/verify-otp") {
-      return NextResponse.next();
-    }
-    return NextResponse.redirect(new URL("/verify-otp", req.nextUrl.origin));
-  }
-
-  // OTP done → leave public/auth-flow pages for the role dashboard.
-  // Allow optional /verify-face without blocking dashboard access.
-  if (isPublic || pathname === "/verify-otp") {
+  // Authenticated: leave landing / registration OTP / forgot-password for role home.
+  // Face verification is optional and must not block dashboard access.
+  if (
+    pathname === "/" ||
+    pathname === "/forgot-password" ||
+    pathname === "/verify-otp"
+  ) {
     return NextResponse.redirect(
       new URL(homeForRole(role!), req.nextUrl.origin),
     );

@@ -1,8 +1,8 @@
 import { ActionError } from "@/lib/auth-guards";
-import { debugLog, maskEmail, maskId } from "@/lib/debug";
+import { debugLog, isVerboseDebugEnabled, maskEmail, maskId } from "@/lib/debug";
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@/lib/otp/crypto";
 import { sendOtpEmail } from "@/lib/otp/email";
-import { EmailOtp } from "@/models/EmailOtp";
+import { EmailOtp, type OtpPurpose } from "@/models/EmailOtp";
 import { User } from "@/models/User";
 
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -10,7 +10,15 @@ const RESEND_COOLDOWN_MS = 60 * 1000;
 const MAX_SENDS_PER_HOUR = 5;
 const MAX_ATTEMPTS = 5;
 
-export async function issueEmailOtp(userId: string) {
+function authFlowLog(tag: string, message: string) {
+  if (!isVerboseDebugEnabled()) return;
+  console.log(`[${tag}] ${message}`);
+}
+
+export async function issueEmailOtp(
+  userId: string,
+  purpose: OtpPurpose = "login",
+) {
   const user = await User.findById(userId);
   if (!user) throw new ActionError("User not found.");
   if (user.status === "suspended") {
@@ -21,6 +29,7 @@ export async function issueEmailOtp(userId: string) {
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
   const recentSends = await EmailOtp.countDocuments({
     email,
+    purpose,
     createdAt: { $gte: oneHourAgo },
   });
   if (recentSends >= MAX_SENDS_PER_HOUR) {
@@ -29,7 +38,11 @@ export async function issueEmailOtp(userId: string) {
     );
   }
 
-  const latest = await EmailOtp.findOne({ email, consumedAt: null }).sort({
+  const latest = await EmailOtp.findOne({
+    email,
+    purpose,
+    consumedAt: null,
+  }).sort({
     createdAt: -1,
   });
   if (
@@ -42,6 +55,7 @@ export async function issueEmailOtp(userId: string) {
     // Active OTP already exists — treat as soft success (helps React Strict Mode double-mount).
     debugLog("AUTH", "OTP_RESEND_COOLDOWN", {
       email: maskEmail(email),
+      purpose,
       waitSec,
     });
     return {
@@ -53,9 +67,9 @@ export async function issueEmailOtp(userId: string) {
     };
   }
 
-  // Invalidate previous active codes
+  // Invalidate previous active codes for this purpose only
   await EmailOtp.updateMany(
-    { email, consumedAt: null },
+    { email, purpose, consumedAt: null },
     { $set: { consumedAt: new Date() } },
   );
 
@@ -64,6 +78,7 @@ export async function issueEmailOtp(userId: string) {
   const doc = await EmailOtp.create({
     userId: user._id,
     email,
+    purpose,
     codeHash: hashOtpCode(code, email),
     expiresAt: new Date(now.getTime() + OTP_TTL_MS),
     attempts: 0,
@@ -72,9 +87,14 @@ export async function issueEmailOtp(userId: string) {
     consumedAt: null,
   });
 
+  if (purpose === "registration") {
+    authFlowLog("OTP", "Registration OTP generated");
+  }
+
   debugLog("AUTH", "OTP_ISSUED", {
     userId: maskId(userId),
     email: maskEmail(email),
+    purpose,
     otpId: maskId(doc._id.toString()),
   });
 
@@ -83,6 +103,10 @@ export async function issueEmailOtp(userId: string) {
     code,
     name: user.name,
   });
+
+  if (purpose === "registration") {
+    authFlowLog("OTP", "Registration OTP sent");
+  }
 
   return {
     expiresAt: doc.expiresAt.toISOString(),
@@ -94,7 +118,24 @@ export async function issueEmailOtp(userId: string) {
   };
 }
 
-export async function verifyEmailOtp(userId: string, code: string) {
+export async function issueRegistrationOtpByEmail(emailRaw: string) {
+  const email = emailRaw.toLowerCase().trim();
+  const user = await User.findOne({ email });
+  if (!user) throw new ActionError("No account found for this email.");
+  if (user.status === "suspended") {
+    throw new ActionError("This account is suspended.");
+  }
+  if (user.emailVerified === true) {
+    throw new ActionError("Email already verified. Please log in.");
+  }
+  return issueEmailOtp(user._id.toString(), "registration");
+}
+
+export async function verifyEmailOtp(
+  userId: string,
+  code: string,
+  purpose: OtpPurpose = "login",
+) {
   const cleaned = code.replace(/\D/g, "");
   if (cleaned.length !== 6) {
     throw new ActionError("Enter the 6-digit code.");
@@ -107,6 +148,7 @@ export async function verifyEmailOtp(userId: string, code: string) {
   const challenge = await EmailOtp.findOne({
     userId: user._id,
     email,
+    purpose,
     consumedAt: null,
   }).sort({ createdAt: -1 });
 
@@ -141,19 +183,44 @@ export async function verifyEmailOtp(userId: string, code: string) {
     );
   }
 
+  // Invalidate — never reusable after success
   challenge.consumedAt = new Date();
   await challenge.save();
 
-  // Marks OTP success for this login session (JWT sync checks this vs token.authTime).
   const verifiedAt = new Date();
-  await User.findByIdAndUpdate(user._id, {
-    $set: { otpLoginVerifiedAt: verifiedAt },
-  });
+
+  if (purpose === "registration") {
+    await User.findByIdAndUpdate(user._id, {
+      $set: { emailVerified: true },
+    });
+    authFlowLog("REGISTER", "Email verified");
+  } else {
+    // Marks OTP success for this login session (JWT sync checks this vs token.authTime).
+    await User.findByIdAndUpdate(user._id, {
+      $set: { otpLoginVerifiedAt: verifiedAt },
+    });
+  }
 
   debugLog("AUTH", "OTP_VERIFIED", {
     userId: maskId(userId),
     email: maskEmail(email),
+    purpose,
   });
 
   return { success: true as const, verifiedAt: verifiedAt.toISOString() };
 }
+
+export async function verifyRegistrationOtpByEmail(
+  emailRaw: string,
+  code: string,
+) {
+  const email = emailRaw.toLowerCase().trim();
+  const user = await User.findOne({ email });
+  if (!user) throw new ActionError("No account found for this email.");
+  if (user.emailVerified === true) {
+    throw new ActionError("Email already verified. Please log in.");
+  }
+  return verifyEmailOtp(user._id.toString(), code, "registration");
+}
+
+export { authFlowLog };

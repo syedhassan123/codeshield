@@ -2,9 +2,15 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { authConfig } from "@/lib/auth.config";
+import { authConfig, homeForRole } from "@/lib/auth.config";
 import { connectDB } from "@/lib/db";
-import { debugError, debugLog, maskEmail, maskId } from "@/lib/debug";
+import {
+  debugError,
+  debugLog,
+  isVerboseDebugEnabled,
+  maskEmail,
+  maskId,
+} from "@/lib/debug";
 import { User } from "@/models/User";
 import type { UserRole } from "@/types/user";
 
@@ -13,6 +19,11 @@ const credentialsSchema = z.object({
   password: z.string().min(1),
   skipVerification: z.enum(["true", "false"]).optional(),
 });
+
+function flowLog(tag: string, message: string) {
+  if (!isVerboseDebugEnabled()) return;
+  console.log(`[${tag}] ${message}`);
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -28,6 +39,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
       async authorize(credentials) {
         const startedAt = Date.now();
+        flowLog("LOGIN", "Credentials authentication started");
         debugLog("AUTH", "LOGIN_ATTEMPT");
         const parsed = credentialsSchema.safeParse(credentials);
         if (!parsed.success) {
@@ -68,14 +80,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
 
           const skip = parsed.data.skipVerification === "true";
+
+          // Explicit false blocks login; missing/true allows (legacy + verified).
+          // Demo quick-login may skip registration verification.
+          if (!skip && user.emailVerified === false) {
+            debugLog("AUTH", "LOGIN_DENIED", {
+              reason: "email_not_verified",
+              id: maskId(user._id.toString()),
+              email: maskEmail(user.email),
+            });
+            return null;
+          }
+
           if (skip) {
             await User.findByIdAndUpdate(user._id, {
-              $set: { otpLoginVerifiedAt: new Date() },
+              $set: { emailVerified: true },
             });
           }
 
+          const role = user.role as UserRole;
+          const redirectTo = homeForRole(role);
+
+          flowLog("LOGIN", "Credentials authentication SUCCESS");
+          flowLog("AUTH", "Session created");
+          flowLog("AUTH", `Role=${role.toUpperCase()}`);
+          flowLog("AUTH", `Redirect=${redirectTo}`);
           debugLog("AUTH", "LOGIN_SUCCESS", {
-            role: user.role.toUpperCase(),
+            role: role.toUpperCase(),
             id: maskId(user._id.toString()),
             email: maskEmail(user.email),
             skipVerification: skip,
@@ -86,9 +117,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             id: user._id.toString(),
             email: user.email,
             name: user.name,
-            role: user.role as UserRole,
+            role,
             avatar: user.avatar || undefined,
-            otpVerified: skip,
+            // Login no longer requires OTP — session is fully usable immediately.
+            otpVerified: true,
             faceVerified: false,
           };
         } catch (error) {
@@ -107,41 +139,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.avatar = user.avatar;
         token.otpVerified = Boolean(user.otpVerified);
         token.faceVerified = Boolean(user.faceVerified);
-        // Stable login timestamp — session.update must not refresh this.
         token.authTime = Date.now();
       }
 
       if (trigger === "update" && session) {
-        // Client cannot forge otpVerified; only DB proof after verifyOtpAction.
-        if (session.refreshOtpStatus === true && token.id) {
-          await connectDB();
-          const dbUser = await User.findById(token.id)
-            .select("otpLoginVerifiedAt")
-            .lean();
-          const verifiedAt = dbUser?.otpLoginVerifiedAt
-            ? new Date(dbUser.otpLoginVerifiedAt).getTime()
-            : 0;
-          const authTime =
-            typeof token.authTime === "number"
-              ? token.authTime
-              : typeof token.iat === "number"
-                ? token.iat * 1000
-                : 0;
-
-          if (verifiedAt > 0 && verifiedAt >= authTime - 5000) {
-            token.otpVerified = true;
-            debugLog("AUTH", "OTP_SESSION_SYNC", {
-              id: maskId(String(token.id)),
-            });
-          } else {
-            debugLog("AUTH", "OTP_SESSION_SYNC_DENIED", {
-              id: maskId(String(token.id)),
-              verifiedAt,
-              authTime,
-            });
-          }
-        }
-
+        // Face remains optional / future — allow session.update for face only.
         if (typeof session.faceVerified === "boolean") {
           token.faceVerified = session.faceVerified;
         }

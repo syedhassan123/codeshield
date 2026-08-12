@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { AdminAttemptDetailClient } from "@/components/admin/admin-attempt-detail-client";
 import { getAdminAttemptDetailAction } from "@/lib/actions/grading";
-import { beginRequestLog, maskId } from "@/lib/debug";
 import { requirePageRole } from "@/lib/safe-auth";
 
 export default async function AdminAttemptDetailPage({
@@ -10,11 +9,6 @@ export default async function AdminAttemptDetailPage({
   params: Promise<{ attemptId: string }>;
 }) {
   const { attemptId } = await params;
-  beginRequestLog({
-    label: `GET /admin/results/${maskId(attemptId)}`,
-    source: "SERVER-COMPONENT",
-  });
-
   await requirePageRole(["admin"]);
   const data = await getAdminAttemptDetailAction(attemptId);
 

@@ -34,13 +34,16 @@ export default async function StudentAssessmentsPage() {
     }).sort({ publishedAt: -1, updatedAt: -1 }),
   );
 
-  const assessments = docs.map((doc) =>
-    serializeAssessment(doc, {
-      questionCount: doc.questionIds?.length ?? 0,
-    }),
-  );
-  op.success({ count: assessments.length });
-  console.log("Assessments ", assessments)
+  const sessionUser = session.user;
+  op.allowed({ action: "list_published_assessments", role: sessionUser.role });
+
+  const assessments = op.respond({
+    assessments: docs.map((doc) =>
+      serializeAssessment(doc, {
+        questionCount: doc.questionIds?.length ?? 0,
+      }),
+    ),
+  }).assessments;
 
   return (
     <div>

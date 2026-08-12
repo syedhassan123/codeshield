@@ -48,20 +48,20 @@ export default async function AdminAssessmentDetailPage({
     Question.find().sort({ createdAt: -1 }),
   );
 
-  op.success({
-    resourceId: maskId(id),
-    questionCount: ordered.length,
-    bankCount: bankDocs.length,
+  const payload = op.respond({
+    assessment: serializeAssessment(doc, {
+      questionCount: ordered.length,
+      computedMarks: marks,
+    }),
+    questions: ordered,
+    bank: bankDocs.map(serializeQuestion),
   });
 
   return (
     <AssessmentDetailClient
-      initialAssessment={serializeAssessment(doc, {
-        questionCount: ordered.length,
-        computedMarks: marks,
-      })}
-      initialQuestions={ordered}
-      bank={bankDocs.map(serializeQuestion)}
+      initialAssessment={payload.assessment}
+      initialQuestions={payload.questions}
+      bank={payload.bank}
     />
   );
 }

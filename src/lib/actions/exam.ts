@@ -79,8 +79,10 @@ export async function startExamAction(assessmentIdOrCode: string) {
           mode: "resume",
           attemptId: maskId(live._id.toString()),
         });
-        op.success({ mode: "resume", attemptId: maskId(live._id.toString()) });
-        return { attempt: serializeAttempt(live), resumed: true as const };
+        return op.respond({
+          attempt: serializeAttempt(live),
+          resumed: true as const,
+        });
       }
     }
 
@@ -116,8 +118,10 @@ export async function startExamAction(assessmentIdOrCode: string) {
         mode: "resume_race",
         attemptId: maskId(raced._id.toString()),
       });
-      op.success({ mode: "resume_race" });
-      return { attempt: serializeAttempt(raced), resumed: true as const };
+      return op.respond({
+        attempt: serializeAttempt(raced),
+        resumed: true as const,
+      });
     }
 
     debugLog("EXAM", "START", {
@@ -128,11 +132,12 @@ export async function startExamAction(assessmentIdOrCode: string) {
 
     revalidatePath("/student/assessments");
     revalidatePath("/student/results");
-    op.success({ mode: "create", attemptId: maskId(attempt._id.toString()) });
-    return { attempt: serializeAttempt(attempt), resumed: false as const };
+    return op.respond({
+      attempt: serializeAttempt(attempt),
+      resumed: false as const,
+    });
   } catch (error) {
-    op.fail(error, { resourceId: assessmentIdOrCode });
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -163,12 +168,11 @@ export async function loadExamSessionAction(attemptId: string) {
     attempt = await ensureAttemptNotExpired(attempt);
 
     if (attempt.status !== "in_progress") {
-      op.success({ status: attempt.status, redirect: "result" });
-      return {
+      return op.respond({
         closed: true as const,
         attempt: serializeAttempt(attempt),
         resultId: attempt.resultId?.toString() ?? null,
-      };
+      });
     }
 
     const questions = await op.runMongo("load exam questions", () =>
@@ -190,17 +194,15 @@ export async function loadExamSessionAction(attemptId: string) {
       answerCount: answers.length,
     });
 
-    op.success({ questionCount: ordered.length });
-    return {
+    return op.respond({
       closed: false as const,
       attempt: serializeAttempt(attempt),
       questions: ordered,
       answers: answers.map(serializeAnswer),
       serverNow: new Date().toISOString(),
-    };
+    });
   } catch (error) {
-    op.fail(error, { resourceId: attemptId });
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -306,15 +308,13 @@ export async function saveAnswerAction(raw: unknown) {
       type: question.type,
     });
 
-    op.success({ questionId: maskId(data.questionId) });
-    return {
+    return op.respond({
       answer: serializeAnswer(answer!),
       attempt: serializeAttempt(attempt),
       serverNow: new Date().toISOString(),
-    };
+    });
   } catch (error) {
-    op.fail(error);
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -365,14 +365,12 @@ export async function submitExamAction(attemptId: string) {
 
     revalidatePath("/student/results");
     revalidatePath(`/student/exam/result/${attemptId}`);
-    op.success({ status: attempt.status });
-    return {
+    return op.respond({
       attempt: serializeAttempt(attempt),
       result: serializeResult(result),
-    };
+    });
   } catch (error) {
-    op.fail(error, { resourceId: attemptId });
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -409,14 +407,12 @@ export async function getExamResultAction(attemptId: string) {
       throw new ActionError("Result not found.");
     }
 
-    op.success({ attemptId: maskId(attemptId) });
-    return {
+    return op.respond({
       attempt: serializeAttempt(attempt),
       result: serializeResult(result),
-    };
+    });
   } catch (error) {
-    op.fail(error, { resourceId: attemptId });
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -437,10 +433,8 @@ export async function listStudentResultsAction() {
       Result.find({ studentId: session.user.id }).sort({ submittedAt: -1 }),
     );
 
-    op.success({ count: results.length });
-    return { results: results.map(serializeResult) };
+    return op.respond({ results: results.map(serializeResult) });
   } catch (error) {
-    op.fail(error);
-    return toError(error);
+    return op.respondError(error);
   }
 }

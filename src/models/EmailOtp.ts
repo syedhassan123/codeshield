@@ -1,5 +1,8 @@
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
+export const OTP_PURPOSES = ["registration", "login"] as const;
+export type OtpPurpose = (typeof OTP_PURPOSES)[number];
+
 const EmailOtpSchema = new Schema(
   {
     userId: {
@@ -13,6 +16,12 @@ const EmailOtpSchema = new Schema(
       required: true,
       lowercase: true,
       trim: true,
+      index: true,
+    },
+    purpose: {
+      type: String,
+      enum: OTP_PURPOSES,
+      default: "login",
       index: true,
     },
     codeHash: {
@@ -44,13 +53,23 @@ const EmailOtpSchema = new Schema(
   { timestamps: true },
 );
 
-EmailOtpSchema.index({ email: 1, createdAt: -1 });
+EmailOtpSchema.index({ email: 1, purpose: 1, createdAt: -1 });
 EmailOtpSchema.index({ expiresAt: 1 });
 
 export type EmailOtpDocument = InferSchemaType<typeof EmailOtpSchema> & {
   _id: mongoose.Types.ObjectId;
 };
 
-export const EmailOtp: Model<EmailOtpDocument> =
-  mongoose.models.EmailOtp ||
-  mongoose.model<EmailOtpDocument>("EmailOtp", EmailOtpSchema);
+function getEmailOtpModel(): Model<EmailOtpDocument> {
+  const cached = mongoose.models.EmailOtp as Model<EmailOtpDocument> | undefined;
+  if (cached) {
+    if (!cached.schema.path("purpose")) {
+      mongoose.deleteModel("EmailOtp");
+    } else {
+      return cached;
+    }
+  }
+  return mongoose.model<EmailOtpDocument>("EmailOtp", EmailOtpSchema);
+}
+
+export const EmailOtp: Model<EmailOtpDocument> = getEmailOtpModel();

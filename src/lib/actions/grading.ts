@@ -168,23 +168,15 @@ export async function listAdminAttemptsAction(rawFilters?: unknown) {
       );
     }
 
-    debugLog("ATTEMPT", "LIST", {
-      total,
-      page: filters.page,
-      returned: rows.length,
-    });
-
-    op.success({ count: rows.length, total });
-    return {
+    return op.respond({
       attempts: rows,
       total,
       page: filters.page,
       pageSize: filters.pageSize,
       pageCount: Math.max(1, Math.ceil(total / filters.pageSize)),
-    };
+    });
   } catch (error) {
-    op.fail(error);
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -206,11 +198,7 @@ export async function listAdminAttemptFilterOptionsAction() {
       User.find({ role: "student" }).select("name email").sort({ name: 1 }),
     ]);
 
-    op.success({
-      assessments: assessments.length,
-      students: students.length,
-    });
-    return {
+    return op.respond({
       assessments: assessments.map((a) => ({
         id: a._id.toString(),
         title: a.title,
@@ -220,10 +208,9 @@ export async function listAdminAttemptFilterOptionsAction() {
         name: s.name,
         email: s.email,
       })),
-    };
+    });
   } catch (error) {
-    op.fail(error);
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -249,27 +236,28 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
       throw new ActionError("Attempt not found.");
     }
 
-    const attempt = await op.runMongo("load attempt", () =>
+    const attempt = await op.runMongo("FIND_ATTEMPT", () =>
       Attempt.findById(attemptId),
     );
     if (!attempt) throw new ActionError("Attempt not found.");
 
     const [student, assessment, result] = await Promise.all([
-      op.runMongo("load student", () =>
+      op.runMongo("FIND_STUDENT", () =>
         User.findById(attempt.studentId).select("name email"),
       ),
-      op.runMongo("load assessment", () =>
+      op.runMongo("FIND_ASSESSMENT", () =>
         Assessment.findById(attempt.assessmentId).select(
           "title type durationMin totalMarks",
         ),
       ),
-      op.runMongo("load result", () =>
+      op.runMongo("FIND_RESULT", () =>
         Result.findOne({ attemptId: attempt._id }),
       ),
     ]);
 
     if (!student) throw new ActionError("Student not found.");
 
+    // This exact object is returned to the client AND logged as [API RESPONSE].
     const payload = {
       attempt: serializeAttempt(attempt),
       student: {
@@ -291,30 +279,9 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
       ),
     };
 
-    op.summary({
-      attemptId: maskId(attemptId),
-      status: attempt.status,
-      hasResult: Boolean(result),
-      result: "SUCCESS",
-    });
-    op.success(
-      { attemptId: maskId(attemptId) },
-      {
-        success: true,
-        data: {
-          attemptId: maskId(attemptId),
-          status: attempt.status,
-          hasResult: Boolean(result),
-          evaluationStatus: payload.result?.evaluationStatus ?? null,
-          finalScore: payload.result?.finalScore ?? null,
-          totalMarks: payload.result?.totalMarks ?? null,
-        },
-      },
-    );
-    return payload;
+    return op.respond(payload, 200);
   } catch (error) {
-    op.fail(error, { resourceId: attemptId });
-    return toError(error);
+    return op.respondError(error, 400);
   }
 }
 
@@ -403,17 +370,12 @@ export async function gradeQuestionAction(raw: unknown) {
     revalidatePath("/student/results");
     revalidatePath(`/student/exam/result/${data.attemptId}`);
 
-    op.success({
-      finalScore: scores.finalScore,
-      evaluationStatus: scores.evaluationStatus,
-    });
-    return {
+    return op.respond({
       result: serializeResult(result),
       attempt: serializeAttempt(attempt),
-    };
+    });
   } catch (error) {
-    op.fail(error);
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -467,11 +429,9 @@ export async function completeEvaluationAction(attemptId: string) {
     revalidatePath("/student/results");
     revalidatePath(`/student/exam/result/${attemptId}`);
 
-    op.success({ finalScore: scores.finalScore });
-    return { result: serializeResult(result) };
+    return op.respond({ result: serializeResult(result) });
   } catch (error) {
-    op.fail(error, { resourceId: attemptId });
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -516,13 +476,11 @@ export async function getStudentResultDetailAction(attemptId: string) {
     });
     if (!result) throw new ActionError("Result not found.");
 
-    op.success({ attemptId: maskId(attemptId) });
-    return {
+    return op.respond({
       attempt: serializeAttempt(attempt),
       result: serializeResult(result),
-    };
+    });
   } catch (error) {
-    op.fail(error, { resourceId: attemptId });
-    return toError(error);
+    return op.respondError(error);
   }
 }

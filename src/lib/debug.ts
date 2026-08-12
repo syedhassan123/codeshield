@@ -1,10 +1,12 @@
 /**
- * Structured development logger.
+ * Centralized server-side debug logger.
  *
  * Enabled when NODE_ENV === "development" OR DEBUG_LOGS === "true".
  * Forced off when DEBUG_LOGS === "false".
  *
  * Never log passwords, tokens, cookies, Mongo URIs, or secrets.
+ * Only [API RESPONSE] logs the actual return body as an expandable object
+ * (console.log(object) — not a raw JSON string wall).
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -27,6 +29,7 @@ export type LogPrefix =
   | "TEST-CASE"
   | "MONGODB"
   | "DB"
+  | "DATABASE"
   | "SERVER-ACTION"
   | "SERVER-COMPONENT"
   | "API"
@@ -45,13 +48,16 @@ type RequestLogContext = {
   lastAuthzAction?: string;
   mongoReuseLogged: boolean;
   role?: string;
-  summarized: boolean;
+  route?: string;
+  responseLogged: boolean;
 };
 
 const requestAls = new AsyncLocalStorage<RequestLogContext>();
 
 const SENSITIVE_KEY =
   /pass(word)?|token|secret|authorization|cookie|mongo(db)?_?uri|api[_-]?key|private|credential|otp|hash|salt/i;
+
+const DIVIDER = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
 
 export function isVerboseDebugEnabled() {
   if (process.env.DEBUG_LOGS === "false") return false;
@@ -62,8 +68,10 @@ export function isVerboseDebugEnabled() {
 export function isResponseBodyLoggingEnabled() {
   if (!isVerboseDebugEnabled()) return false;
   if (process.env.DEBUG_API_BODY === "false") return false;
-  // Detailed response bodies only in debug mode (never production unless forced).
-  if (process.env.NODE_ENV === "production" && process.env.DEBUG_API_BODY !== "true") {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.DEBUG_API_BODY !== "true"
+  ) {
     return false;
   }
   return true;
@@ -86,11 +94,6 @@ function newRequestId() {
   return `req_${randomBytes(3).toString("hex")}`;
 }
 
-function displayPrefix(prefix: LogPrefix): Exclude<LogPrefix, "MONGODB"> {
-  if (prefix === "MONGODB") return "DB";
-  return prefix;
-}
-
 function getCtx(): RequestLogContext | undefined {
   return requestAls.getStore();
 }
@@ -99,8 +102,23 @@ export function getRequestId() {
   return getCtx()?.requestId;
 }
 
-/** Start or reuse a request-scoped logging context (survives awaits). */
-export function beginRequestLog(meta?: {
+function out(...lines: string[]) {
+  if (!isVerboseDebugEnabled()) return;
+  for (const line of lines) console.log(line);
+}
+
+function printBlock(title: string, fields: Array<[string, DetailValue]>) {
+  if (!isVerboseDebugEnabled()) return;
+  console.log("");
+  console.log(`[${title}]`);
+  for (const [key, value] of fields) {
+    if (value === undefined || value === "") continue;
+    console.log(`${key}: ${String(value)}`);
+  }
+}
+
+/** Start or reuse request-scoped logging context (survives awaits). */
+export function beginRequestLog(_meta?: {
   label?: string;
   source?: "SERVER-ACTION" | "SERVER-COMPONENT" | "API";
 }) {
@@ -112,87 +130,53 @@ export function beginRequestLog(meta?: {
     startedAt: Date.now(),
     authLogged: false,
     authzLogged: false,
-    lastAuthzAction: undefined,
     mongoReuseLogged: false,
-    summarized: false,
+    responseLogged: false,
   };
   requestAls.enterWith(ctx);
-
-  if (meta?.label) {
-    writeLine("API", meta.label, { requestId: ctx.requestId });
-  }
-
   return ctx;
 }
 
-function writeLine(
-  prefix: LogPrefix,
-  message: string,
-  inline?: LogDetails,
-  details?: LogDetails,
-) {
-  if (!isVerboseDebugEnabled()) return;
+export function logApiRequest(options: {
+  method?: string;
+  route: string;
+  resourceId?: string;
+}) {
+  const ctx = getCtx() ?? beginRequestLog();
+  ctx.route = options.route;
+  const method = options.method || "ACTION";
 
-  const ctx = getCtx();
-  const parts = [`[${displayPrefix(prefix)}] ${message}`];
-
-  const inlinePairs = { ...(inline || {}) };
-  if (ctx?.requestId && inlinePairs.requestId == null) {
-    inlinePairs.requestId = ctx.requestId;
-  }
-
-  const inlineText = Object.entries(inlinePairs)
-    .filter(([, v]) => v !== undefined && v !== "")
-    .map(([k, v]) => `${k}=${String(v)}`)
-    .join(" ");
-  if (inlineText) parts.push(inlineText);
-
-  console.log(parts.join(" | "));
-
-  if (details && Object.keys(details).length) {
-    for (const [k, v] of Object.entries(details)) {
-      if (v === undefined) continue;
-      // requestId already appears on the summary line.
-      if (k === "requestId") continue;
-      console.log(`  ${k}=${String(v)}`);
-    }
-  }
+  out("");
+  out(DIVIDER);
+  out("[API REQUEST]");
+  out(`Method: ${method}`);
+  out(`Route: ${options.route}`);
+  if (options.resourceId) out(`Resource: ${maskId(options.resourceId)}`);
+  out(`Request ID: ${ctx.requestId}`);
+  out(DIVIDER);
 }
 
+/** Compatibility helper used by older call sites. */
 export function debugLog(
   prefix: LogPrefix,
   message: string,
   meta?: Record<string, unknown>,
 ) {
   if (!isVerboseDebugEnabled()) return;
-  const details: LogDetails = {};
+  const ctx = getCtx();
+  const bits = [`[${prefix === "MONGODB" ? "DB" : prefix}] ${message}`];
+  if (ctx?.requestId) bits.push(`requestId=${ctx.requestId}`);
   if (meta) {
     for (const [k, v] of Object.entries(meta)) {
       if (v === undefined) continue;
       if (SENSITIVE_KEY.test(k)) {
-        details[k] = "[REDACTED]";
+        bits.push(`${k}=[REDACTED]`);
         continue;
       }
-      if (
-        typeof v === "string" ||
-        typeof v === "number" ||
-        typeof v === "boolean" ||
-        v === null
-      ) {
-        details[k] = v;
-      } else {
-        details[k] = String(v);
-      }
+      bits.push(`${k}=${String(v)}`);
     }
   }
-
-  // Prefer compact single-line when few fields; otherwise summary + indent.
-  const keys = Object.keys(details);
-  if (keys.length <= 3) {
-    writeLine(prefix, message, details);
-  } else {
-    writeLine(prefix, message, undefined, details);
-  }
+  console.log(bits.join(" | "));
 }
 
 export function debugBlock(
@@ -200,8 +184,11 @@ export function debugBlock(
   title: string,
   details: LogDetails = {},
 ) {
-  if (!isVerboseDebugEnabled()) return;
-  writeLine(prefix, title, undefined, details);
+  printBlock(prefix === "MONGODB" ? "DB" : prefix, [
+    ["Event", title],
+    ...Object.entries(details),
+    ["Request ID", getCtx()?.requestId],
+  ]);
 }
 
 export function debugError(
@@ -210,39 +197,36 @@ export function debugError(
   meta?: Record<string, unknown>,
 ) {
   if (!isVerboseDebugEnabled()) return;
-
-  const details: LogDetails = {
-    requestId: getCtx()?.requestId,
-    userRole: getCtx()?.role,
-  };
+  const fields: Array<[string, DetailValue]> = [
+    ["Event", message],
+    ["Request ID", getCtx()?.requestId],
+    ["User Role", getCtx()?.role],
+  ];
   if (meta) {
     for (const [k, v] of Object.entries(meta)) {
       if (v === undefined) continue;
-      if (SENSITIVE_KEY.test(k)) {
-        details[k] = "[REDACTED]";
-        continue;
-      }
-      details[k] =
-        typeof v === "string" ||
-        typeof v === "number" ||
-        typeof v === "boolean" ||
-        v === null
-          ? v
-          : String(v);
+      fields.push([
+        k,
+        SENSITIVE_KEY.test(k)
+          ? "[REDACTED]"
+          : typeof v === "string" ||
+              typeof v === "number" ||
+              typeof v === "boolean" ||
+              v === null
+            ? v
+            : String(v),
+      ]);
     }
   }
+  if (error instanceof Error) fields.push(["Error", error.message]);
+  else if (error != null) fields.push(["Error", String(error)]);
 
-  if (error instanceof Error) {
-    details.error = error.message;
-  } else if (typeof error === "string") {
-    details.error = error;
-  } else if (error != null) {
-    details.error = String(error);
-  }
-
-  writeLine("ERROR", message, undefined, details);
-
-  if (error instanceof Error && error.stack && process.env.DEBUG_STACK !== "false") {
+  printBlock("ERROR", fields);
+  if (
+    error instanceof Error &&
+    error.stack &&
+    process.env.DEBUG_STACK !== "false"
+  ) {
     console.error(error.stack);
   }
 }
@@ -253,26 +237,26 @@ type AuthUserLike = {
   role?: string;
 };
 
-/** Log AUTH once per request. */
-export function logAuthOnce(user?: AuthUserLike | null, message = "User authenticated") {
+export function logAuthOnce(
+  user?: AuthUserLike | null,
+  _message = "User authenticated",
+) {
   const ctx = getCtx() ?? beginRequestLog();
   if (ctx.authLogged) return;
   ctx.authLogged = true;
   ctx.role = (user?.role || "anonymous").toUpperCase();
 
-  debugBlock("AUTH", message, {
-    requestId: ctx.requestId,
-    role: ctx.role,
-    userId: maskId(user?.id),
-    email: maskEmail(user?.email),
-  });
+  printBlock("AUTH", [
+    ["Status", user?.id ? "AUTHENTICATED" : "ANONYMOUS"],
+    ["User", maskEmail(user?.email)],
+    ["Role", ctx.role],
+    ["User ID", maskId(user?.id)],
+    ["Request ID", ctx.requestId],
+  ]);
 }
 
-/** Log SESSION retrieval once (alias tone for page loads). */
 export function logSessionOnce(user?: AuthUserLike | null) {
-  const ctx = getCtx() ?? beginRequestLog();
-  if (ctx.authLogged) return;
-  logAuthOnce(user, "Session retrieved");
+  logAuthOnce(user);
 }
 
 export function logAuthorization(options: {
@@ -283,7 +267,6 @@ export function logAuthorization(options: {
   reason?: string;
 }) {
   const ctx = getCtx() ?? beginRequestLog();
-  // DENIED always logs. ALLOWED logs once per distinct action in the request.
   if (
     options.allowed &&
     ctx.authzLogged &&
@@ -296,21 +279,23 @@ export function logAuthorization(options: {
     ctx.lastAuthzAction = options.action;
   }
 
-  debugBlock(
-    "AUTHORIZATION",
-    options.allowed ? "ALLOWED" : "DENIED",
-    {
-      requestId: ctx.requestId,
-      role: (options.role || ctx.role || "anonymous").toUpperCase(),
-      action: options.action,
-      resource: options.resource,
-      reason: options.reason,
-    },
-  );
+  printBlock("AUTHORIZATION", [
+    ["Status", options.allowed ? "ALLOWED" : "DENIED"],
+    ["Role", (options.role || ctx.role || "anonymous").toUpperCase()],
+    ["Action", options.action],
+    ["Resource", options.resource],
+    ["Reason", options.reason],
+    ["Request ID", ctx.requestId],
+  ]);
 }
 
 export function logMongoConnected(durationMs: number) {
-  writeLine("DB", "MongoDB connected", { duration: `${durationMs}ms` });
+  printBlock("DATABASE", [
+    ["Operation", "CONNECT"],
+    ["Status", "SUCCESS"],
+    ["Duration", `${durationMs}ms`],
+    ["Request ID", getCtx()?.requestId],
+  ]);
 }
 
 export function logMongoReused() {
@@ -319,23 +304,36 @@ export function logMongoReused() {
     if (ctx.mongoReuseLogged) return;
     ctx.mongoReuseLogged = true;
   }
-  writeLine("DB", "MongoDB connection reused");
+  // Keep quiet — one short line only (avoid drowning the request flow).
+  if (!isVerboseDebugEnabled()) return;
+  console.log(
+    `[DATABASE] connection reused | requestId=${ctx?.requestId ?? "n/a"}`,
+  );
 }
 
 function redactValue(key: string, value: unknown): unknown {
   if (SENSITIVE_KEY.test(key)) return "[REDACTED]";
+  if (/^e-?mail$/i.test(key) && typeof value === "string") {
+    return maskEmail(value);
+  }
   if (Array.isArray(value)) {
-    return value.slice(0, 50).map((item, i) => redactValue(String(i), item));
+    if (value.length > 40) {
+      return [
+        ...value.slice(0, 40).map((item, i) => redactValue(String(i), item)),
+        `…(+${value.length - 40} more)`,
+      ];
+    }
+    return value.map((item, i) => redactValue(String(i), item));
   }
   if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
+    const outObj: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = redactValue(k, v);
+      outObj[k] = redactValue(k, v);
     }
-    return out;
+    return outObj;
   }
-  if (typeof value === "string" && value.length > 2000) {
-    return `${value.slice(0, 2000)}…[truncated]`;
+  if (typeof value === "string" && value.length > 4000) {
+    return `${value.slice(0, 4000)}…[truncated]`;
   }
   return value;
 }
@@ -346,30 +344,48 @@ export function redactForLog(payload: unknown): unknown {
   return redactValue("root", payload);
 }
 
-/** Pretty-print API/server-action response bodies (debug mode only). */
+/**
+ * Pretty-print the ACTUAL response body returned to the client.
+ * Call this with the same object you return from the server action / route.
+ */
 export function logApiResponse(options: {
   status: number;
   durationMs: number;
-  body?: unknown;
+  body: unknown;
   method?: string;
   path?: string;
 }) {
   if (!isVerboseDebugEnabled()) return;
+  const ctx = getCtx();
+  if (ctx) ctx.responseLogged = true;
 
-  writeLine("API", "RESPONSE", {
-    status: options.status,
-    duration: `${options.durationMs}ms`,
-    requestId: getCtx()?.requestId,
-  });
+  out("");
+  out(DIVIDER);
+  out("[API RESPONSE]");
+  out(`Request ID: ${ctx?.requestId ?? "n/a"}`);
+  out(`Status: ${options.status}`);
+  out(`Duration: ${options.durationMs}ms`);
+  if (options.path) out(`Route: ${options.path}`);
+  out("");
 
-  if (!isResponseBodyLoggingEnabled() || options.body === undefined) return;
+  if (!isResponseBodyLoggingEnabled()) {
+    out("(response body logging disabled — set DEBUG_API_BODY=true)");
+    out(DIVIDER);
+    out("");
+    return;
+  }
 
   try {
+    // Log as a real object so browser DevTools shows a collapsible ▶ Object
+    // (NOT JSON.stringify — that prints an unreadable text wall).
     const redacted = redactForLog(options.body);
-    console.log(JSON.stringify(redacted, null, 2));
+    console.log("[API RESPONSE] body ▶", redacted);
   } catch {
-    console.log("[unserializable response body]");
+    console.log("[API RESPONSE] body ▶", "[unserializable response body]");
   }
+
+  out(DIVIDER);
+  out("");
 }
 
 export function createServerOp(options: {
@@ -393,25 +409,15 @@ export function createServerOp(options: {
   resourceId?: string;
 }) {
   const { domain, operation, source = "SERVER-ACTION", resourceId } = options;
-  const label = `${domain}.${operation}`;
-  const ctx = beginRequestLog({
-    label:
-      source === "SERVER-COMPONENT"
-        ? `PAGE ${label}`
-        : source === "API"
-          ? `API ${label}`
-          : `ACTION ${label}`,
-    source,
+  const route = `${domain}.${operation}`;
+  const ctx = beginRequestLog({ label: route, source });
+  const startedAt = Date.now();
+
+  logApiRequest({
+    method: source === "API" ? "HTTP" : source === "SERVER-COMPONENT" ? "PAGE" : "ACTION",
+    route,
+    resourceId,
   });
-  const startedAt = ctx.startedAt;
-
-  if (resourceId) {
-    writeLine(domain, operation, {
-      resourceId: maskId(resourceId),
-    });
-  }
-
-  let responseLogged = false;
 
   return {
     requestId: ctx.requestId,
@@ -478,108 +484,135 @@ export function createServerOp(options: {
     },
 
     mongo(message: string, meta?: Record<string, unknown>) {
-      debugLog("DB", message, meta);
+      debugLog("DATABASE", message, meta);
     },
 
     async runMongo<T>(label: string, fn: () => Promise<T>): Promise<T> {
       const t0 = Date.now();
+      const opName = label
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, "_")
+        .replace(/^_|_$/g, "");
       try {
         const result = await fn();
-        writeLine("DB", `Query ${label}`, {
-          duration: `${Date.now() - t0}ms`,
-          requestId: ctx.requestId,
-        });
+        printBlock("DATABASE", [
+          ["Operation", opName || label],
+          ["Resource", resourceId ? maskId(resourceId) : undefined],
+          ["Status", "SUCCESS"],
+          ["Duration", `${Date.now() - t0}ms`],
+          ["Request ID", ctx.requestId],
+        ]);
         return result;
       } catch (error) {
-        writeLine("DB", `Query ${label} FAILED`, {
-          duration: `${Date.now() - t0}ms`,
-          requestId: ctx.requestId,
-        });
+        printBlock("DATABASE", [
+          ["Operation", opName || label],
+          ["Resource", resourceId ? maskId(resourceId) : undefined],
+          ["Status", "FAILED"],
+          ["Duration", `${Date.now() - t0}ms`],
+          ["Request ID", ctx.requestId],
+        ]);
         debugError(`DB_${operation}_FAILED`, error, { op: label });
         throw error;
       }
     },
 
-    /** One scannable summary block for the operation. */
     summary(details: LogDetails = {}) {
-      ctx.summarized = true;
-      debugBlock(domain, operation, {
-        requestId: ctx.requestId,
-        ...details,
-        duration: `${Date.now() - startedAt}ms`,
-        result: details.result ?? "SUCCESS",
-      });
+      printBlock(domain, [
+        ["Event", operation],
+        ...Object.entries(details),
+        ["Duration", `${Date.now() - startedAt}ms`],
+        ["Request ID", ctx.requestId],
+      ]);
     },
 
-    success(meta?: Record<string, unknown>, responseBody?: unknown) {
-      const duration = Date.now() - startedAt;
-      if (!ctx.summarized) {
-        const details: LogDetails = { requestId: ctx.requestId, duration: `${duration}ms` };
-        if (meta) {
-          for (const [k, v] of Object.entries(meta)) {
-            if (v === undefined) continue;
-            details[k] =
-              typeof v === "string" ||
-              typeof v === "number" ||
-              typeof v === "boolean" ||
-              v === null
-                ? v
-                : String(v);
-          }
-        }
-        debugBlock(domain, "SUCCESS", details);
-      }
+    /**
+     * Log the ACTUAL response body and return it unchanged.
+     * Always prefer this over success()+return separately.
+     */
+    respond<T>(body: T, status = 200): T {
+      logApiResponse({
+        status,
+        durationMs: Date.now() - startedAt,
+        path: route,
+        body,
+      });
+      return body;
+    },
 
-      if (!responseLogged && responseBody !== undefined) {
-        responseLogged = true;
+    /**
+     * Log an error response body and return it (for action `{ error }` returns).
+     */
+    respondError(error: unknown, status = 400): { error: string } {
+      const message =
+        typeof error === "string"
+          ? error
+          : error instanceof Error
+            ? error.message
+            : "Something went wrong.";
+      const body = { success: false as const, error: message };
+      debugError(`${domain}_${operation}_FAILED`, error, {
+        resourceId: resourceId ? maskId(resourceId) : undefined,
+      });
+      logApiResponse({
+        status,
+        durationMs: Date.now() - startedAt,
+        path: route,
+        body,
+      });
+      return { error: message };
+    },
+
+    /** @deprecated Prefer respond(actualBody). Keeps older call sites working. */
+    success(meta?: Record<string, unknown>, responseBody?: unknown) {
+      if (responseBody !== undefined) {
         logApiResponse({
           status: 200,
-          durationMs: duration,
+          durationMs: Date.now() - startedAt,
+          path: route,
           body: responseBody,
         });
-      } else if (!responseLogged && source === "SERVER-ACTION") {
-        // Compact success line for actions without a body dump.
-        writeLine("API", "SUCCESS", {
-          requestId: ctx.requestId,
-          duration: `${duration}ms`,
-        });
+        return;
+      }
+      // No body provided — do NOT invent JSON. Just a short success line.
+      if (!ctx.responseLogged) {
+        console.log(
+          `[${domain}] SUCCESS | duration=${Date.now() - startedAt}ms | requestId=${ctx.requestId}${
+            meta
+              ? " | " +
+                Object.entries(meta)
+                  .map(([k, v]) => `${k}=${String(v)}`)
+                  .join(" ")
+              : ""
+          }`,
+        );
       }
     },
 
     fail(error: unknown, meta?: Record<string, unknown>) {
-      const duration = Date.now() - startedAt;
-      debugError(`${domain}_${operation}_FAILED`, error, {
-        ...meta,
-        attemptId: meta?.resourceId ? maskId(String(meta.resourceId)) : undefined,
-        duration: `${duration}ms`,
-      });
-      writeLine("API", "FAILED", {
-        requestId: ctx.requestId,
-        duration: `${duration}ms`,
-      });
-
-      if (!responseLogged && error != null) {
-        responseLogged = true;
-        const message =
-          error instanceof Error
-            ? error.message
-            : typeof error === "string"
+      // Prefer respondError at call sites; this keeps older catch blocks working.
+      if (!ctx.responseLogged) {
+        this.respondError(
+          typeof error === "string"
+            ? error
+            : error instanceof Error
               ? error
-              : "Something went wrong.";
-        logApiResponse({
-          status: 400,
-          durationMs: duration,
-          body: { success: false, error: message },
-        });
+              : meta?.resourceId
+                ? String(error)
+                : error,
+          400,
+        );
+      } else {
+        debugError(`${domain}_${operation}_FAILED`, error, meta);
       }
     },
 
     logResponse(status: number, body?: unknown) {
-      responseLogged = true;
       logApiResponse({
         status,
         durationMs: Date.now() - startedAt,
-        body,
+        path: route,
+        body: body ?? null,
       });
     },
 

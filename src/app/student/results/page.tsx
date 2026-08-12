@@ -16,13 +16,13 @@ export default async function StudentResultsPage() {
 
   const session = await requirePageRole(["student"]);
   op.auth(session.user);
+  op.allowed({ action: "list_results", role: session.user.role });
   await connectDB();
 
   const docs = await op.runMongo("list results for student page", () =>
     Result.find({ studentId: session.user.id }).sort({ submittedAt: -1 }),
   );
-  const results = docs.map(serializeResult);
-  op.success({ count: results.length });
+  const results = op.respond({ results: docs.map(serializeResult) }).results;
 
   return (
     <div>

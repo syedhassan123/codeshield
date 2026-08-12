@@ -37,8 +37,7 @@ export const authConfig = {
       }
 
       if (trigger === "update" && session) {
-        // Never trust client-provided otpVerified in the edge-safe config.
-        // Node auth.ts overrides this callback to sync OTP from MongoDB.
+        // Face remains optional / future. Never trust client otpVerified.
         if (typeof session.faceVerified === "boolean") {
           token.faceVerified = session.faceVerified;
         }

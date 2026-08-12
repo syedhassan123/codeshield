@@ -21,6 +21,7 @@ async function seed() {
       role: "admin",
       avatar: "AR",
       status: "active",
+      emailVerified: true,
     },
     {
       email: "rohan@codeshield.edu",
@@ -30,6 +31,7 @@ async function seed() {
       course: "B.Tech CSE",
       year: "Year 3",
       status: "active",
+      emailVerified: true,
     },
     {
       email: "kabir@codeshield.ai",
@@ -37,6 +39,7 @@ async function seed() {
       role: "interviewer",
       avatar: "KM",
       status: "active",
+      emailVerified: true,
     },
     {
       email: "demo@codeshield.ai",
@@ -44,6 +47,7 @@ async function seed() {
       role: "student",
       avatar: "DU",
       status: "active",
+      emailVerified: true,
     },
   ] as const;
 

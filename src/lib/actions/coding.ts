@@ -153,12 +153,7 @@ export async function runCodingVisibleAction(raw: unknown) {
       passed: `${evaluation.passedTests}/${evaluation.totalTests}`,
     });
 
-    op.success({
-      passed: evaluation.passedTests,
-      total: evaluation.totalTests,
-    });
-
-    return {
+    return op.respond({
       passedTests: evaluation.passedTests,
       totalTests: evaluation.totalTests,
       executionTimeMs: evaluation.executionTimeMs,
@@ -173,10 +168,9 @@ export async function runCodingVisibleAction(raw: unknown) {
         expectedOutput: visible[r.index - 1]?.expectedOutput ?? "",
         input: visible[r.index - 1]?.input ?? "",
       })),
-    };
+    });
   } catch (error) {
-    op.fail(error);
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -320,13 +314,8 @@ export async function submitCodingAction(raw: unknown) {
     });
 
     revalidatePath(`/student/exam/session/${attempt._id.toString()}`);
-    op.success({
-      score: evaluation.score,
-      passed: evaluation.passedTests,
-      total: evaluation.totalTests,
-    });
 
-    return {
+    return op.respond({
       submissionId: submission!._id.toString(),
       passedTests: evaluation.passedTests,
       totalTests: evaluation.totalTests,
@@ -334,10 +323,9 @@ export async function submitCodingAction(raw: unknown) {
       maxScore: evaluation.maxScore,
       status: evaluation.status,
       // Never include hidden inputs/expected outputs.
-    };
+    });
   } catch (error) {
-    op.fail(error);
-    return toError(error);
+    return op.respondError(error);
   }
 }
 
@@ -367,9 +355,8 @@ export async function getCodingSubmissionSummaryAction(
       studentId: session.user.id,
     });
 
-    op.success({ found: Boolean(submission) });
-    if (!submission) return { submission: null };
-    return {
+    if (!submission) return op.respond({ submission: null });
+    return op.respond({
       submission: {
         language: submission.language,
         passedTests: submission.passedTests,
@@ -379,9 +366,8 @@ export async function getCodingSubmissionSummaryAction(
         status: submission.status,
         submittedAt: submission.submittedAt?.toISOString() ?? null,
       },
-    };
+    });
   } catch (error) {
-    op.fail(error);
-    return toError(error);
+    return op.respondError(error);
   }
 }

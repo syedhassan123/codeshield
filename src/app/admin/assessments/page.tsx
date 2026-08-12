@@ -14,15 +14,18 @@ export default async function AdminAssessmentsPage() {
 
   const session = await requirePageRole(["admin"]);
   op.auth(session.user);
+  op.allowed({ action: "list_assessments", role: session.user.role });
   await connectDB();
   const docs = await op.runMongo("fetching assessments for admin page", () =>
     Assessment.find().sort({ updatedAt: -1 }),
   );
-  const assessments = docs.map((doc) =>
-    serializeAssessment(doc, {
-      questionCount: doc.questionIds?.length ?? 0,
-    }),
-  );
-  op.success({ count: assessments.length });
+  const assessments = op.respond({
+    assessments: docs.map((doc) =>
+      serializeAssessment(doc, {
+        questionCount: doc.questionIds?.length ?? 0,
+      }),
+    ),
+  }).assessments;
+
   return <AssessmentsManagerClient initialAssessments={assessments} />;
 }

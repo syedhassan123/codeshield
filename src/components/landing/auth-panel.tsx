@@ -16,7 +16,11 @@ import { cn } from "@/lib/utils";
 
 const initial: AuthActionState = {};
 
-export function AuthPanel() {
+export function AuthPanel({
+  verifiedBanner = false,
+}: {
+  verifiedBanner?: boolean;
+}) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [loginState, loginFormAction, loginPending] = useActionState(
     loginAction,
@@ -136,6 +140,12 @@ export function AuthPanel() {
           </label>
         )}
 
+        {verifiedBanner && mode === "signin" && !error && (
+          <div className="text-xs font-semibold text-primary bg-primary-soft px-3 py-2 rounded-lg">
+            Email verified successfully. Please log in to continue.
+          </div>
+        )}
+
         {error && (
           <div className="text-xs font-semibold text-danger bg-danger-soft px-3 py-2 rounded-lg">
             {error}
@@ -147,7 +157,13 @@ export function AuthPanel() {
           className="w-full"
           disabled={loginPending || registerPending}
         >
-          Continue to verification
+          {mode === "signup"
+            ? registerPending
+              ? "Creating account…"
+              : "Create account"
+            : loginPending
+              ? "Signing in…"
+              : "Sign in"}
         </Button>
       </form>
 
@@ -173,7 +189,7 @@ export function AuthPanel() {
 
       <div className="mt-5 flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="w-4 h-4 text-primary" />
-        <span>Secured with email OTP verification</span>
+        <span>Email verification required on registration</span>
       </div>
     </div>
   );

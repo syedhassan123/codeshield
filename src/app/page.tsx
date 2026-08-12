@@ -68,7 +68,14 @@ const roles = [
   },
 ];
 
-export default function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ verified?: string }>;
+}) {
+  const params = await searchParams;
+  const verifiedBanner = params.verified === "1";
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/70 backdrop-blur-md sticky top-0 z-40">
@@ -137,7 +144,7 @@ export default function HomePage() {
           </div>
 
           <div id="login">
-            <AuthPanel />
+            <AuthPanel verifiedBanner={verifiedBanner} />
           </div>
         </div>
       </section>

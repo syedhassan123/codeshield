@@ -14,11 +14,14 @@ export default async function AdminQuestionsPage() {
 
   const session = await requirePageRole(["admin"]);
   op.auth(session.user);
+  op.allowed({ action: "list_questions", role: session.user.role });
   await connectDB();
   const docs = await op.runMongo("fetching questions for admin page", () =>
     Question.find().sort({ createdAt: -1 }),
   );
-  const questions = docs.map(serializeQuestion);
-  op.success({ count: questions.length });
+  const questions = op.respond({
+    questions: docs.map(serializeQuestion),
+  }).questions;
+
   return <QuestionBankClient initialQuestions={questions} />;
 }

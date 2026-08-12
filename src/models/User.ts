@@ -45,7 +45,15 @@ const UserSchema = new Schema(
       type: Date,
       default: null,
     },
-    /** Set when email OTP succeeds for the current login; cleared conceptually by new login JWT iat. */
+    /**
+     * Set true after registration email OTP succeeds.
+     * Legacy documents without this field are treated as verified at login time.
+     */
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    /** Set when login email OTP succeeds for the current login; JWT sync checks vs authTime. */
     otpLoginVerifiedAt: {
       type: Date,
       default: null,
@@ -63,8 +71,11 @@ export type UserDocument = InferSchemaType<typeof UserSchema> & {
 function getUserModel(): Model<UserDocument> {
   const cached = mongoose.models.User as Model<UserDocument> | undefined;
   if (cached) {
-    // Hot-reload can keep a stale schema without otpLoginVerifiedAt.
-    if (!cached.schema.path("otpLoginVerifiedAt")) {
+    // Hot-reload can keep a stale schema without newer fields.
+    if (
+      !cached.schema.path("otpLoginVerifiedAt") ||
+      !cached.schema.path("emailVerified")
+    ) {
       mongoose.deleteModel("User");
     } else {
       return cached;
