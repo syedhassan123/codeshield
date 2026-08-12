@@ -25,7 +25,8 @@ export function VerifyFaceClient() {
     if (progress < 100 || done) return;
     setDone(true);
     (async () => {
-      await update({ faceVerified: true, otpVerified: true });
+      // Face remains optional / future. Do not grant otpVerified from the client.
+      await update({ faceVerified: true });
       const role = data?.user?.role || "student";
       router.push(homeForRole(role));
       router.refresh();

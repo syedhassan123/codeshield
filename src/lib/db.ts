@@ -1,5 +1,9 @@
 import mongoose from "mongoose";
-import { debugError, debugLog } from "@/lib/debug";
+import {
+  debugError,
+  logMongoConnected,
+  logMongoReused,
+} from "@/lib/debug";
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -26,12 +30,11 @@ export async function connectDB() {
   }
 
   if (cached.conn) {
-    debugLog("MONGODB", "connection reuse (cached)");
+    logMongoReused();
     return cached.conn;
   }
 
   const startedAt = Date.now();
-  debugLog("MONGODB", "connecting...");
 
   if (!cached.promise) {
     // Never log the URI — may contain credentials.
@@ -42,10 +45,7 @@ export async function connectDB() {
 
   try {
     cached.conn = await cached.promise;
-    debugLog("MONGODB", "connected", {
-      duration: `${Date.now() - startedAt}ms`,
-      readyState: mongoose.connection.readyState,
-    });
+    logMongoConnected(Date.now() - startedAt);
     return cached.conn;
   } catch (error) {
     cached.promise = null;

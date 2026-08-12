@@ -5,19 +5,15 @@ import { authConfig, homeForRole } from "@/lib/auth.config";
 const { auth } = NextAuth(authConfig);
 
 const publicPaths = ["/", "/forgot-password"];
-const authFlowPaths = ["/verify-otp", "/verify-face"];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
   const isLoggedIn = Boolean(session?.user);
   const otpVerified = Boolean(session?.user?.otpVerified);
-  const faceVerified = Boolean(session?.user?.faceVerified);
-  const fullyVerified = otpVerified && faceVerified;
   const role = session?.user?.role;
 
   const isPublic = publicPaths.includes(pathname);
-  const isAuthFlow = authFlowPaths.includes(pathname);
   const isApiAuth = pathname.startsWith("/api/auth");
 
   if (isApiAuth) {
@@ -31,15 +27,17 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/", req.nextUrl.origin));
   }
 
-  if (!fullyVerified) {
-    if (isAuthFlow) {
+  // Production auth gate: Email/password session + OTP only (face optional).
+  if (!otpVerified) {
+    if (pathname === "/verify-otp") {
       return NextResponse.next();
     }
-    const target = !otpVerified ? "/verify-otp" : "/verify-face";
-    return NextResponse.redirect(new URL(target, req.nextUrl.origin));
+    return NextResponse.redirect(new URL("/verify-otp", req.nextUrl.origin));
   }
 
-  if (isPublic || isAuthFlow) {
+  // OTP done → leave public/auth-flow pages for the role dashboard.
+  // Allow optional /verify-face without blocking dashboard access.
+  if (isPublic || pathname === "/verify-otp") {
     return NextResponse.redirect(
       new URL(homeForRole(role!), req.nextUrl.origin),
     );
@@ -57,7 +55,6 @@ export default auth((req) => {
     );
   }
 
-  // Prototype student "Join" links point at /interviewer/lobby/* — allow students there.
   const sharedInterviewSurface =
     pathname.startsWith("/interviewer/lobby/") ||
     pathname.startsWith("/interviewer/room/");

@@ -1,18 +1,57 @@
 import { handlers } from "@/lib/auth";
-import { debugLog } from "@/lib/debug";
+import {
+  beginRequestLog,
+  debugLog,
+  logApiResponse,
+} from "@/lib/debug";
 
 const { GET: authGET, POST: authPOST } = handlers;
 
-export async function GET(
-  ...args: Parameters<typeof authGET>
+async function withAuthApiLog(
+  method: "GET" | "POST",
+  handler: typeof authGET,
+  args: Parameters<typeof authGET>,
 ) {
-  debugLog("API", "AUTH_GET", { path: "/api/auth/[...nextauth]" });
-  return authGET(...args);
+  const startedAt = Date.now();
+  beginRequestLog({
+    label: `${method} /api/auth/[...nextauth]`,
+    source: "API",
+  });
+  debugLog("API", `${method} /api/auth/[...nextauth]`);
+
+  try {
+    const response = await handler(...args);
+    // Never dump NextAuth cookies/tokens — status only.
+    logApiResponse({
+      method,
+      path: "/api/auth/[...nextauth]",
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      body: {
+        success: response.ok,
+        note: "NextAuth response body omitted (may contain session tokens)",
+      },
+    });
+    return response;
+  } catch (error) {
+    logApiResponse({
+      method,
+      path: "/api/auth/[...nextauth]",
+      status: 500,
+      durationMs: Date.now() - startedAt,
+      body: {
+        success: false,
+        error: error instanceof Error ? error.message : "Auth handler failed",
+      },
+    });
+    throw error;
+  }
 }
 
-export async function POST(
-  ...args: Parameters<typeof authPOST>
-) {
-  debugLog("API", "AUTH_POST", { path: "/api/auth/[...nextauth]" });
-  return authPOST(...args);
+export async function GET(...args: Parameters<typeof authGET>) {
+  return withAuthApiLog("GET", authGET, args);
+}
+
+export async function POST(...args: Parameters<typeof authPOST>) {
+  return withAuthApiLog("POST", authPOST, args);
 }

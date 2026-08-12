@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { AdminAttemptDetailClient } from "@/components/admin/admin-attempt-detail-client";
 import { getAdminAttemptDetailAction } from "@/lib/actions/grading";
-import { createServerOp } from "@/lib/debug";
+import { beginRequestLog, maskId } from "@/lib/debug";
 import { requirePageRole } from "@/lib/safe-auth";
 
 export default async function AdminAttemptDetailPage({
@@ -9,19 +9,16 @@ export default async function AdminAttemptDetailPage({
 }: {
   params: Promise<{ attemptId: string }>;
 }) {
-  const op = createServerOp({
-    domain: "ATTEMPT",
-    operation: "PAGE_DETAIL",
+  const { attemptId } = await params;
+  beginRequestLog({
+    label: `GET /admin/results/${maskId(attemptId)}`,
     source: "SERVER-COMPONENT",
   });
 
-  const session = await requirePageRole(["admin"]);
-  op.auth(session.user);
-  const { attemptId } = await params;
+  await requirePageRole(["admin"]);
   const data = await getAdminAttemptDetailAction(attemptId);
 
   if ("error" in data && data.error) {
-    op.fail(data.error);
     redirect("/admin/results");
   }
 
@@ -29,7 +26,6 @@ export default async function AdminAttemptDetailPage({
     redirect("/admin/results");
   }
 
-  op.success({ attemptId });
   return (
     <AdminAttemptDetailClient
       attempt={data.attempt}

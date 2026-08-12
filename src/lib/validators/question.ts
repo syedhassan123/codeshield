@@ -15,6 +15,13 @@ const testCaseSchema = z.object({
   input: z.string(),
   expectedOutput: z.string(),
   isHidden: z.boolean().optional().default(false),
+  weight: z.coerce.number().min(0).max(100).optional().default(1),
+});
+
+const exampleSchema = z.object({
+  input: z.string().optional().default(""),
+  output: z.string().optional().default(""),
+  explanation: z.string().optional().default(""),
 });
 
 export const questionInputSchema = z
@@ -27,6 +34,12 @@ export const questionInputSchema = z
     explanation: z.string().trim().optional().default(""),
     options: z.array(optionSchema).optional().default([]),
     correctOptionKey: z.string().optional().default(""),
+    constraints: z.string().optional().default(""),
+    inputFormat: z.string().optional().default(""),
+    outputFormat: z.string().optional().default(""),
+    examples: z.array(exampleSchema).optional().default([]),
+    timeLimitMs: z.coerce.number().int().min(100).max(15000).optional().default(3000),
+    memoryLimitMb: z.coerce.number().int().min(32).max(1024).optional().default(256),
     codingLanguages: z.array(z.enum(CODING_LANGUAGES)).optional().default([]),
     starterCode: z.record(z.string(), z.string()).optional().default({}),
     testCases: z.array(testCaseSchema).optional().default([]),
@@ -47,9 +60,7 @@ export const questionInputSchema = z
           message: "Select a correct answer",
           path: ["correctOptionKey"],
         });
-      } else if (
-        !filled.some((o) => o.key === data.correctOptionKey)
-      ) {
+      } else if (!filled.some((o) => o.key === data.correctOptionKey)) {
         ctx.addIssue({
           code: "custom",
           message: "Correct answer must match a filled option",
@@ -66,8 +77,9 @@ export const questionInputSchema = z
           path: ["codingLanguages"],
         });
       }
+      // Keep exact stdin/stdout text (including newlines). Only reject fully empty pairs.
       const validTests = data.testCases.filter(
-        (t) => t.input.trim() && t.expectedOutput.trim(),
+        (t) => t.input.length > 0 && t.expectedOutput.length > 0,
       );
       if (!validTests.length) {
         ctx.addIssue({
@@ -88,6 +100,10 @@ export const questionInputSchema = z
         codingLanguages: [],
         starterCode: {},
         testCases: [],
+        examples: [],
+        constraints: "",
+        inputFormat: "",
+        outputFormat: "",
       };
     }
 
@@ -96,13 +112,23 @@ export const questionInputSchema = z
         ...data,
         options: [],
         correctOptionKey: "",
+        // Do not trim/normalize test stdin or expected output — preserve exact bytes for the runner.
         testCases: data.testCases
           .map((t) => ({
             ...t,
-            input: t.input.trim(),
-            expectedOutput: t.expectedOutput.trim(),
+            input: t.input,
+            expectedOutput: t.expectedOutput,
+            weight: t.weight ?? 1,
+            isHidden: Boolean(t.isHidden),
           }))
-          .filter((t) => t.input && t.expectedOutput),
+          .filter((t) => t.input.length > 0 && t.expectedOutput.length > 0),
+        examples: (data.examples || [])
+          .map((e) => ({
+            input: (e.input || "").trim(),
+            output: (e.output || "").trim(),
+            explanation: (e.explanation || "").trim(),
+          }))
+          .filter((e) => e.input || e.output),
       };
     }
 
@@ -113,6 +139,10 @@ export const questionInputSchema = z
       codingLanguages: [],
       starterCode: {},
       testCases: [],
+      examples: [],
+      constraints: "",
+      inputFormat: "",
+      outputFormat: "",
     };
   });
 

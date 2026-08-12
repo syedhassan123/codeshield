@@ -30,6 +30,8 @@ const ResultQuestionSchema = new Schema(
       type: Date,
       default: null,
     },
+    passedTests: { type: Number, default: 0 },
+    totalTests: { type: Number, default: 0 },
   },
   { _id: false },
 );
@@ -118,7 +120,10 @@ function getResultModel(): Model<ResultDocument> {
           | { options?: { enum?: string[] } }
           | undefined
       )?.options?.enum ?? [];
-    if (!evalEnum.includes("manually_graded")) {
+    if (
+      !evalEnum.includes("manually_graded") ||
+      !evalEnum.includes("auto_graded")
+    ) {
       mongoose.deleteModel("Result");
     } else {
       return cached;

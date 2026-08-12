@@ -20,6 +20,7 @@ import {
 } from "@/lib/serializers";
 import { Answer } from "@/models/Answer";
 import { Attempt } from "@/models/Attempt";
+import { CodingSubmission } from "@/models/CodingSubmission";
 import { Question } from "@/models/Question";
 import { Result } from "@/models/Result";
 
@@ -249,6 +250,29 @@ export async function saveAnswerAction(raw: unknown) {
         throw new ActionError("Invalid option selected.");
       }
       textAnswer = "";
+    } else if (question.type === "coding") {
+      const finalized = await CodingSubmission.findOne({
+        attemptId: attempt._id,
+        questionId: question._id,
+        kind: "submit",
+        finalized: true,
+      });
+      if (finalized) {
+        throw new ActionError(
+          "Coding answer already submitted and cannot be changed.",
+        );
+      }
+      if (
+        selectedOptionKey &&
+        !(question.codingLanguages ?? []).includes(
+          selectedOptionKey as (typeof question.codingLanguages)[number],
+        )
+      ) {
+        throw new ActionError("Unsupported language for this question.");
+      }
+      if (textAnswer.length > 100_000) {
+        throw new ActionError("Source code is too long.");
+      }
     } else {
       selectedOptionKey = "";
       if (textAnswer.length > 20000) {

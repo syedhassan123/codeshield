@@ -14,11 +14,21 @@ const McqOptionSchema = new Schema(
   { _id: false },
 );
 
+const CodingExampleSchema = new Schema(
+  {
+    input: { type: String, default: "" },
+    output: { type: String, default: "" },
+    explanation: { type: String, default: "" },
+  },
+  { _id: false },
+);
+
 const CodingTestCaseSchema = new Schema(
   {
     input: { type: String, required: true },
     expectedOutput: { type: String, required: true },
     isHidden: { type: Boolean, default: false },
+    weight: { type: Number, default: 1, min: 0 },
   },
   { _id: false },
 );
@@ -70,6 +80,13 @@ const QuestionSchema = new Schema(
       type: String,
       default: "",
     },
+    /** Coding problem metadata (prompt remains the main statement). */
+    constraints: { type: String, default: "" },
+    inputFormat: { type: String, default: "" },
+    outputFormat: { type: String, default: "" },
+    examples: { type: [CodingExampleSchema], default: [] },
+    timeLimitMs: { type: Number, default: 3000, min: 100, max: 15000 },
+    memoryLimitMb: { type: Number, default: 256, min: 32, max: 1024 },
     codingLanguages: {
       type: [{ type: String, enum: CODING_LANGUAGES }],
       default: [],
@@ -98,6 +115,16 @@ export type QuestionDocument = InferSchemaType<typeof QuestionSchema> & {
   _id: mongoose.Types.ObjectId;
 };
 
-export const Question: Model<QuestionDocument> =
-  mongoose.models.Question ||
-  mongoose.model<QuestionDocument>("Question", QuestionSchema);
+function getQuestionModel(): Model<QuestionDocument> {
+  const cached = mongoose.models.Question as Model<QuestionDocument> | undefined;
+  if (cached) {
+    if (!cached.schema.path("timeLimitMs")) {
+      mongoose.deleteModel("Question");
+    } else {
+      return cached;
+    }
+  }
+  return mongoose.model<QuestionDocument>("Question", QuestionSchema);
+}
+
+export const Question: Model<QuestionDocument> = getQuestionModel();

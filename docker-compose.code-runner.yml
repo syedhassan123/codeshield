@@ -1,0 +1,19 @@
+# Self-hosted Piston sandbox for local development / private infra.
+# Do NOT run student code inside the Next.js process.
+#
+# Usage:
+#   docker compose -f docker-compose.code-runner.yml up -d
+#
+# Then in .env.local:
+#   CODE_RUNNER_PROVIDER=piston
+#   PISTON_URL=http://localhost:2000
+#
+# Production: run this (or Judge0) on a separate host/VM, never inside Vercel.
+
+services:
+  piston:
+    image: ghcr.io/engineer-man/piston:latest
+    ports:
+      - "2000:2000"
+    privileged: true
+    restart: unless-stopped

@@ -2,7 +2,7 @@
 
 import { useActionState, useState, useTransition } from "react";
 import Link from "next/link";
-import { Eye, EyeOff, Lock, Mail, ScanFace, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, ShieldCheck } from "lucide-react";
 import {
   demoLoginAction,
   loginAction,
@@ -173,8 +173,7 @@ export function AuthPanel() {
 
       <div className="mt-5 flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="w-4 h-4 text-primary" />
-        <ScanFace className="w-4 h-4 text-primary" />
-        <span>Secured with OTP & face verification</span>
+        <span>Secured with email OTP verification</span>
       </div>
     </div>
   );

@@ -27,5 +27,7 @@ declare module "next-auth/jwt" {
     avatar?: string;
     otpVerified: boolean;
     faceVerified: boolean;
+    /** ms timestamp when this login JWT was created (stable across session.update) */
+    authTime?: number;
   }
 }

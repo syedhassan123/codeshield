@@ -12,6 +12,7 @@ import {
   saveAnswerAction,
   submitExamAction,
 } from "@/lib/actions/exam";
+import { ExamCodingPanel } from "@/components/exam/exam-coding-panel";
 import type {
   SerializedAnswer,
   SerializedAttempt,
@@ -312,14 +313,21 @@ export function ExamSessionClient({
                 );
               })}
             </div>
+          ) : current.type === "coding" ? (
+            <ExamCodingPanel
+              attemptId={attempt.id}
+              question={current}
+              initialLanguage={answers[current.id]?.selectedOptionKey ?? ""}
+              initialSourceCode={answers[current.id]?.textAnswer ?? ""}
+              onDraftChange={(patch) => {
+                setAnswers((map) => ({ ...map, [current.id]: patch }));
+              }}
+              disabled={remainingMs <= 0}
+            />
           ) : (
             <textarea
               className="w-full min-h-[220px] rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-primary"
-              placeholder={
-                current.type === "coding"
-                  ? "Write your code here…"
-                  : "Type your answer here…"
-              }
+              placeholder="Type your answer here…"
               value={answers[current.id]?.textAnswer ?? ""}
               onChange={(e) => updateAnswer({ textAnswer: e.target.value })}
             />

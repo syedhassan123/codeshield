@@ -5,7 +5,12 @@ import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { ActionError, requireAdmin, requireStudent } from "@/lib/auth-guards";
 import { connectDB } from "@/lib/db";
-import { createServerOp, debugLog, maskId } from "@/lib/debug";
+import {
+  createServerOp,
+  debugLog,
+  logAuthorization,
+  maskId,
+} from "@/lib/debug";
 import { recalculateResultScores } from "@/lib/exam/score";
 import {
   serializeAttempt,
@@ -49,7 +54,7 @@ export async function listAdminAttemptsAction(rawFilters?: unknown) {
   try {
     const session = await requireAdmin();
     op.auth(session.user);
-    op.allowed("admin list attempts");
+    op.allowed({ action: "list_attempts", role: session.user.role });
     await connectDB();
 
     const filters = adminAttemptFilterSchema.parse(rawFilters ?? {});
@@ -233,7 +238,11 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
   try {
     const session = await requireAdmin();
     op.auth(session.user);
-    op.allowed("admin view attempt");
+    op.allowed({
+      action: "view_attempt",
+      resource: `attempt:${maskId(attemptId)}`,
+      role: session.user.role,
+    });
     await connectDB();
 
     if (!mongoose.Types.ObjectId.isValid(attemptId)) {
@@ -246,23 +255,22 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
     if (!attempt) throw new ActionError("Attempt not found.");
 
     const [student, assessment, result] = await Promise.all([
-      User.findById(attempt.studentId).select("name email"),
-      Assessment.findById(attempt.assessmentId).select(
-        "title type durationMin totalMarks",
+      op.runMongo("load student", () =>
+        User.findById(attempt.studentId).select("name email"),
       ),
-      Result.findOne({ attemptId: attempt._id }),
+      op.runMongo("load assessment", () =>
+        Assessment.findById(attempt.assessmentId).select(
+          "title type durationMin totalMarks",
+        ),
+      ),
+      op.runMongo("load result", () =>
+        Result.findOne({ attemptId: attempt._id }),
+      ),
     ]);
 
     if (!student) throw new ActionError("Student not found.");
 
-    debugLog("ATTEMPT", "DETAIL", {
-      attemptId: maskId(attemptId),
-      status: attempt.status,
-      hasResult: Boolean(result),
-    });
-
-    op.success({ attemptId: maskId(attemptId) });
-    return {
+    const payload = {
       attempt: serializeAttempt(attempt),
       student: {
         id: student._id.toString(),
@@ -282,6 +290,28 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
         attempt.submittedAt ?? null,
       ),
     };
+
+    op.summary({
+      attemptId: maskId(attemptId),
+      status: attempt.status,
+      hasResult: Boolean(result),
+      result: "SUCCESS",
+    });
+    op.success(
+      { attemptId: maskId(attemptId) },
+      {
+        success: true,
+        data: {
+          attemptId: maskId(attemptId),
+          status: attempt.status,
+          hasResult: Boolean(result),
+          evaluationStatus: payload.result?.evaluationStatus ?? null,
+          finalScore: payload.result?.finalScore ?? null,
+          totalMarks: payload.result?.totalMarks ?? null,
+        },
+      },
+    );
+    return payload;
   } catch (error) {
     op.fail(error, { resourceId: attemptId });
     return toError(error);
@@ -465,11 +495,20 @@ export async function getStudentResultDetailAction(attemptId: string) {
 
     const attempt = await Attempt.findById(attemptId);
     if (!attempt || attempt.studentId.toString() !== session.user.id) {
-      debugLog("AUTHORIZATION", "DENIED", { reason: "result_ownership" });
-      debugLog("HTTP", "403 Forbidden");
+      logAuthorization({
+        allowed: false,
+        action: "view_result",
+        resource: `attempt:${maskId(attemptId)}`,
+        role: session.user.role,
+        reason: "NOT_OWNER",
+      });
       throw new ActionError("You cannot access this result.");
     }
-    op.allowed("student own result");
+    op.allowed({
+      action: "view_result",
+      resource: `attempt:${maskId(attemptId)}`,
+      role: session.user.role,
+    });
 
     const result = await Result.findOne({
       attemptId: attempt._id,

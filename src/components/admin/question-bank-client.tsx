@@ -39,9 +39,20 @@ type QuestionFormState = {
   explanation: string;
   options: Array<{ key: string; text: string }>;
   correctOptionKey: string;
+  constraints: string;
+  inputFormat: string;
+  outputFormat: string;
+  examples: Array<{ input: string; output: string; explanation: string }>;
+  timeLimitMs: number;
+  memoryLimitMb: number;
   codingLanguages: string[];
   starterCode: Record<string, string>;
-  testCases: Array<{ input: string; expectedOutput: string; isHidden: boolean }>;
+  testCases: Array<{
+    input: string;
+    expectedOutput: string;
+    isHidden: boolean;
+    weight: number;
+  }>;
 };
 
 const emptyForm: QuestionFormState = {
@@ -58,9 +69,17 @@ const emptyForm: QuestionFormState = {
     { key: "D", text: "" },
   ],
   correctOptionKey: "A",
+  constraints: "",
+  inputFormat: "",
+  outputFormat: "",
+  examples: [{ input: "", output: "", explanation: "" }],
+  timeLimitMs: 3000,
+  memoryLimitMb: 256,
   codingLanguages: ["python"],
   starterCode: { python: "# write your solution" },
-  testCases: [{ input: "", expectedOutput: "", isHidden: false }],
+  testCases: [
+    { input: "", expectedOutput: "", isHidden: false, weight: 1 },
+  ],
 };
 
 export function QuestionBankClient({
@@ -123,15 +142,33 @@ export function QuestionBankClient({
       explanation: q.explanation,
       options: q.options.length ? q.options : emptyForm.options,
       correctOptionKey: q.correctOptionKey || "A",
+      constraints: q.constraints ?? "",
+      inputFormat: q.inputFormat ?? "",
+      outputFormat: q.outputFormat ?? "",
+      examples: q.examples?.length
+        ? q.examples.map((e) => ({
+            input: e.input ?? "",
+            output: e.output ?? "",
+            explanation: e.explanation ?? "",
+          }))
+        : emptyForm.examples,
+      timeLimitMs: q.timeLimitMs ?? 3000,
+      memoryLimitMb: q.memoryLimitMb ?? 256,
       codingLanguages: q.codingLanguages.length
         ? [...q.codingLanguages]
         : ["python"],
-      starterCode: q.starterCode?.python
-        ? q.starterCode
-        : { python: "# write your solution" },
+      starterCode:
+        q.starterCode && Object.keys(q.starterCode).length
+          ? q.starterCode
+          : { python: "# write your solution" },
       testCases: q.testCases.length
-        ? q.testCases
-        : [{ input: "", expectedOutput: "", isHidden: false }],
+        ? q.testCases.map((t) => ({
+            input: t.input,
+            expectedOutput: t.expectedOutput,
+            isHidden: Boolean(t.isHidden),
+            weight: t.weight ?? 1,
+          }))
+        : [{ input: "", expectedOutput: "", isHidden: false, weight: 1 }],
     });
     setError("");
     setOpen(true);
@@ -149,6 +186,12 @@ export function QuestionBankClient({
         explanation: form.explanation,
         options: form.type === "mcq" ? form.options : [],
         correctOptionKey: form.type === "mcq" ? form.correctOptionKey : "",
+        constraints: form.type === "coding" ? form.constraints : "",
+        inputFormat: form.type === "coding" ? form.inputFormat : "",
+        outputFormat: form.type === "coding" ? form.outputFormat : "",
+        examples: form.type === "coding" ? form.examples : [],
+        timeLimitMs: form.type === "coding" ? form.timeLimitMs : 3000,
+        memoryLimitMb: form.type === "coding" ? form.memoryLimitMb : 256,
         codingLanguages:
           form.type === "coding"
             ? (form.codingLanguages as (
@@ -470,7 +513,18 @@ export function QuestionBankClient({
                           const codingLanguages = on
                             ? form.codingLanguages.filter((l) => l !== lang)
                             : [...form.codingLanguages, lang];
-                          setForm({ ...form, codingLanguages });
+                          const starterCode = { ...form.starterCode };
+                          if (!on && !starterCode[lang]) {
+                            starterCode[lang] =
+                              lang === "python"
+                                ? "# write your solution"
+                                : lang === "javascript"
+                                  ? "// write your solution"
+                                  : lang === "java"
+                                    ? "// write your solution in Main"
+                                    : "// write your solution";
+                          }
+                          setForm({ ...form, codingLanguages, starterCode });
                         }}
                         className={cn(
                           "px-3 py-1.5 rounded-lg text-xs font-semibold border",
@@ -485,47 +539,267 @@ export function QuestionBankClient({
                   })}
                 </div>
               </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <Label>Time limit (ms)</Label>
+                  <Input
+                    disabled={readOnly}
+                    type="number"
+                    min={100}
+                    max={15000}
+                    value={form.timeLimitMs}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        timeLimitMs: Number(e.target.value) || 3000,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>Memory limit (MB)</Label>
+                  <Input
+                    disabled={readOnly}
+                    type="number"
+                    min={32}
+                    max={1024}
+                    value={form.memoryLimitMb}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        memoryLimitMb: Number(e.target.value) || 256,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
               <div>
-                <Label>Starter code (python)</Label>
+                <Label>Constraints</Label>
                 <textarea
                   disabled={readOnly}
-                  value={form.starterCode.python ?? ""}
+                  value={form.constraints}
                   onChange={(e) =>
-                    setForm({
-                      ...form,
-                      starterCode: { ...form.starterCode, python: e.target.value },
-                    })
+                    setForm({ ...form, constraints: e.target.value })
                   }
-                  className="w-full min-h-24 rounded-xl border border-border bg-slate-950 text-slate-100 font-mono px-3 py-2 text-xs"
+                  className="w-full min-h-16 rounded-xl border border-border bg-card px-3 py-2 text-sm"
                 />
               </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <Label>Input format</Label>
+                  <textarea
+                    disabled={readOnly}
+                    value={form.inputFormat}
+                    onChange={(e) =>
+                      setForm({ ...form, inputFormat: e.target.value })
+                    }
+                    className="w-full min-h-16 rounded-xl border border-border bg-card px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label>Output format</Label>
+                  <textarea
+                    disabled={readOnly}
+                    value={form.outputFormat}
+                    onChange={(e) =>
+                      setForm({ ...form, outputFormat: e.target.value })
+                    }
+                    className="w-full min-h-16 rounded-xl border border-border bg-card px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Examples (shown to students)</Label>
+                {form.examples.map((ex, idx) => (
+                  <div
+                    key={idx}
+                    className="grid sm:grid-cols-3 gap-2 rounded-xl border border-border p-2"
+                  >
+                    <textarea
+                      disabled={readOnly}
+                      spellCheck={false}
+                      placeholder="Example input"
+                      value={ex.input}
+                      onChange={(e) => {
+                        const examples = [...form.examples];
+                        examples[idx] = { ...ex, input: e.target.value };
+                        setForm({ ...form, examples });
+                      }}
+                      className="min-h-20 rounded-xl border border-border bg-card px-3 py-2 text-xs font-mono whitespace-pre"
+                    />
+                    <textarea
+                      disabled={readOnly}
+                      spellCheck={false}
+                      placeholder="Example output"
+                      value={ex.output}
+                      onChange={(e) => {
+                        const examples = [...form.examples];
+                        examples[idx] = { ...ex, output: e.target.value };
+                        setForm({ ...form, examples });
+                      }}
+                      className="min-h-20 rounded-xl border border-border bg-card px-3 py-2 text-xs font-mono whitespace-pre"
+                    />
+                    <textarea
+                      disabled={readOnly}
+                      placeholder="Explanation"
+                      value={ex.explanation}
+                      onChange={(e) => {
+                        const examples = [...form.examples];
+                        examples[idx] = {
+                          ...ex,
+                          explanation: e.target.value,
+                        };
+                        setForm({ ...form, examples });
+                      }}
+                      className="min-h-20 rounded-xl border border-border bg-card px-3 py-2 text-sm"
+                    />
+                  </div>
+                ))}
+                {!readOnly && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        examples: [
+                          ...form.examples,
+                          { input: "", output: "", explanation: "" },
+                        ],
+                      })
+                    }
+                  >
+                    Add example
+                  </Button>
+                )}
+              </div>
+
+              {form.codingLanguages.map((lang) => (
+                <div key={lang}>
+                  <Label>Starter code ({lang})</Label>
+                  <textarea
+                    disabled={readOnly}
+                    value={form.starterCode[lang] ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        starterCode: {
+                          ...form.starterCode,
+                          [lang]: e.target.value,
+                        },
+                      })
+                    }
+                    className="w-full min-h-24 rounded-xl border border-border bg-slate-950 text-slate-100 font-mono px-3 py-2 text-xs"
+                  />
+                </div>
+              ))}
+
               <div className="space-y-2">
                 <Label>Test cases</Label>
                 {form.testCases.map((tc, idx) => (
-                  <div key={idx} className="grid sm:grid-cols-2 gap-2">
-                    <Input
-                      disabled={readOnly}
-                      placeholder="Input"
-                      value={tc.input}
-                      onChange={(e) => {
-                        const testCases = [...form.testCases];
-                        testCases[idx] = { ...tc, input: e.target.value };
-                        setForm({ ...form, testCases });
-                      }}
-                    />
-                    <Input
-                      disabled={readOnly}
-                      placeholder="Expected output"
-                      value={tc.expectedOutput}
-                      onChange={(e) => {
-                        const testCases = [...form.testCases];
-                        testCases[idx] = {
-                          ...tc,
-                          expectedOutput: e.target.value,
-                        };
-                        setForm({ ...form, testCases });
-                      }}
-                    />
+                  <div
+                    key={idx}
+                    className="rounded-xl border border-border p-3 space-y-2"
+                  >
+                    <div className="grid sm:grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-[11px] text-muted-foreground">
+                          Input (stdin, multiline OK)
+                        </Label>
+                        <textarea
+                          disabled={readOnly}
+                          spellCheck={false}
+                          placeholder={"4\n2 7 11 15\n9"}
+                          value={tc.input}
+                          onChange={(e) => {
+                            const testCases = [...form.testCases];
+                            testCases[idx] = { ...tc, input: e.target.value };
+                            setForm({ ...form, testCases });
+                          }}
+                          className="mt-1 w-full min-h-24 rounded-xl border border-border bg-slate-950 text-slate-100 font-mono px-3 py-2 text-xs whitespace-pre"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[11px] text-muted-foreground">
+                          Expected output (multiline OK)
+                        </Label>
+                        <textarea
+                          disabled={readOnly}
+                          spellCheck={false}
+                          placeholder={"0 1"}
+                          value={tc.expectedOutput}
+                          onChange={(e) => {
+                            const testCases = [...form.testCases];
+                            testCases[idx] = {
+                              ...tc,
+                              expectedOutput: e.target.value,
+                            };
+                            setForm({ ...form, testCases });
+                          }}
+                          className="mt-1 w-full min-h-24 rounded-xl border border-border bg-slate-950 text-slate-100 font-mono px-3 py-2 text-xs whitespace-pre"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="inline-flex items-center gap-2 text-xs font-semibold">
+                        <input
+                          type="checkbox"
+                          disabled={readOnly}
+                          checked={tc.isHidden}
+                          onChange={(e) => {
+                            const testCases = [...form.testCases];
+                            testCases[idx] = {
+                              ...tc,
+                              isHidden: e.target.checked,
+                            };
+                            setForm({ ...form, testCases });
+                          }}
+                        />
+                        Hidden
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          Weight
+                        </span>
+                        <Input
+                          disabled={readOnly}
+                          type="number"
+                          min={0}
+                          max={100}
+                          className="w-20 h-8"
+                          value={tc.weight}
+                          onChange={(e) => {
+                            const testCases = [...form.testCases];
+                            testCases[idx] = {
+                              ...tc,
+                              weight: Number(e.target.value) || 1,
+                            };
+                            setForm({ ...form, testCases });
+                          }}
+                        />
+                      </div>
+                      {!readOnly && form.testCases.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              testCases: form.testCases.filter(
+                                (_, i) => i !== idx,
+                              ),
+                            })
+                          }
+                        >
+                          Delete
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
                 {!readOnly && (
@@ -538,7 +812,12 @@ export function QuestionBankClient({
                         ...form,
                         testCases: [
                           ...form.testCases,
-                          { input: "", expectedOutput: "", isHidden: false },
+                          {
+                            input: "",
+                            expectedOutput: "",
+                            isHidden: false,
+                            weight: 1,
+                          },
                         ],
                       })
                     }

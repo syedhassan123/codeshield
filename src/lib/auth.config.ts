@@ -12,6 +12,7 @@ export function homeForRole(role: UserRole) {
   }
 }
 
+/** Edge-safe auth config (used by middleware). No MongoDB imports here. */
 export const authConfig = {
   secret: process.env.AUTH_SECRET,
   trustHost: true,
@@ -36,9 +37,8 @@ export const authConfig = {
       }
 
       if (trigger === "update" && session) {
-        if (typeof session.otpVerified === "boolean") {
-          token.otpVerified = session.otpVerified;
-        }
+        // Never trust client-provided otpVerified in the edge-safe config.
+        // Node auth.ts overrides this callback to sync OTP from MongoDB.
         if (typeof session.faceVerified === "boolean") {
           token.faceVerified = session.faceVerified;
         }

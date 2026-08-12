@@ -1,37 +1,47 @@
 import { redirect } from "next/navigation";
 import { auth, homeForRole } from "@/lib/auth";
-import { debugLog, maskEmail, maskId } from "@/lib/debug";
+import {
+  beginRequestLog,
+  logAuthorization,
+  logSessionOnce,
+} from "@/lib/debug";
 import type { UserRole } from "@/types/user";
 
 export async function requirePageRole(roles: UserRole[]) {
-  debugLog("SERVER-COMPONENT", "requirePageRole", {
-    required: roles.map((r) => r.toUpperCase()).join("|"),
+  beginRequestLog({
+    label: `requirePageRole(${roles.join("|")})`,
+    source: "SERVER-COMPONENT",
   });
 
   const session = await auth();
-  debugLog("SESSION", "retrieved", {
-    role: (session?.user?.role || "anonymous").toUpperCase(),
-    id: maskId(session?.user?.id),
-    email: maskEmail(session?.user?.email),
-  });
+  logSessionOnce(session?.user);
 
   if (!session?.user) {
-    debugLog("AUTHORIZATION", "DENIED", { reason: "unauthenticated" });
-    debugLog("HTTP", "403 Forbidden");
+    logAuthorization({
+      allowed: false,
+      action: "access_page",
+      reason: "UNAUTHENTICATED",
+      role: "ANONYMOUS",
+    });
     redirect("/");
   }
 
   if (!roles.includes(session.user.role)) {
-    debugLog("AUTHORIZATION", "DENIED", {
-      role: session.user.role.toUpperCase(),
-      required: roles.map((r) => r.toUpperCase()).join("|"),
+    logAuthorization({
+      allowed: false,
+      action: "access_page",
+      role: session.user.role,
+      reason: `${roles.map((r) => r.toUpperCase()).join("|")}_ONLY`,
     });
-    debugLog("HTTP", "403 Forbidden");
     redirect(homeForRole(session.user.role));
   }
 
-  debugLog("AUTHORIZATION", "ALLOWED", {
-    role: session.user.role.toUpperCase(),
+  logAuthorization({
+    allowed: true,
+    action: "access_page",
+    role: session.user.role,
+    resource: `roles:${roles.join("|")}`,
   });
+
   return session;
 }

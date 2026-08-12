@@ -24,12 +24,23 @@ export function serializeQuestion(doc: QuestionDocument) {
       text: o.text,
     })),
     correctOptionKey: doc.correctOptionKey ?? "",
+    constraints: doc.constraints ?? "",
+    inputFormat: doc.inputFormat ?? "",
+    outputFormat: doc.outputFormat ?? "",
+    examples: (doc.examples ?? []).map((e) => ({
+      input: e.input ?? "",
+      output: e.output ?? "",
+      explanation: e.explanation ?? "",
+    })),
+    timeLimitMs: doc.timeLimitMs ?? 3000,
+    memoryLimitMb: doc.memoryLimitMb ?? 256,
     codingLanguages: doc.codingLanguages ?? [],
     starterCode: starter,
     testCases: (doc.testCases ?? []).map((t) => ({
       input: t.input,
       expectedOutput: t.expectedOutput,
       isHidden: Boolean(t.isHidden),
+      weight: t.weight ?? 1,
     })),
     createdAt: toIso((doc as { createdAt?: Date }).createdAt),
     updatedAt: toIso((doc as { updatedAt?: Date }).updatedAt),
@@ -92,8 +103,9 @@ export function displayStatus(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-/** Student-facing question payload — never includes answer keys. */
+/** Student-facing question payload — never includes hidden tests or keys. */
 export function serializeExamQuestion(doc: QuestionDocument) {
+  const visibleCount = (doc.testCases ?? []).filter((t) => !t.isHidden).length;
   return {
     id: doc._id.toString(),
     code: doc.code,
@@ -106,6 +118,17 @@ export function serializeExamQuestion(doc: QuestionDocument) {
       key: o.key,
       text: o.text,
     })),
+    constraints: doc.constraints ?? "",
+    inputFormat: doc.inputFormat ?? "",
+    outputFormat: doc.outputFormat ?? "",
+    examples: (doc.examples ?? []).map((e) => ({
+      input: e.input ?? "",
+      output: e.output ?? "",
+      explanation: e.explanation ?? "",
+    })),
+    timeLimitMs: doc.timeLimitMs ?? 3000,
+    memoryLimitMb: doc.memoryLimitMb ?? 256,
+    visibleTestCount: visibleCount,
     codingLanguages: doc.codingLanguages ?? [],
     starterCode:
       doc.starterCode instanceof Map
@@ -189,6 +212,8 @@ export function serializeResult(doc: ResultDocument) {
       prompt: q.prompt ?? "",
       feedback: q.feedback ?? "",
       gradedAt: q.gradedAt ? toIso(q.gradedAt) : null,
+      passedTests: q.passedTests ?? 0,
+      totalTests: q.totalTests ?? 0,
     })),
   };
 }

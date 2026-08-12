@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { AuthError } from "next-auth";
 import { z } from "zod";
 import { auth, homeForRole, signIn, signOut } from "@/lib/auth";
+import { ActionError } from "@/lib/auth-guards";
 import { connectDB } from "@/lib/db";
 import {
   createServerOp,
@@ -12,6 +13,7 @@ import {
   maskEmail,
   maskId,
 } from "@/lib/debug";
+import { issueEmailOtp, verifyEmailOtp } from "@/lib/otp/service";
 import { User } from "@/models/User";
 import { USER_ROLES, type UserRole } from "@/types/user";
 
@@ -27,10 +29,20 @@ const registerSchema = z.object({
   role: z.enum(USER_ROLES).default("student"),
 });
 
+const otpCodeSchema = z.object({
+  code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code."),
+});
+
 export type AuthActionState = {
   error?: string;
   success?: string;
 };
+
+function toAuthError(error: unknown) {
+  if (error instanceof ActionError) return { error: error.message };
+  if (error instanceof Error) return { error: error.message };
+  return { error: "Something went wrong." };
+}
 
 export async function loginAction(
   _prev: AuthActionState,
@@ -68,7 +80,6 @@ export async function loginAction(
       op.fail(error, { reason: "auth_error" });
       return { error: "Invalid email or password." };
     }
-    // Next.js redirect throws; rethrow without treating as failure noise.
     throw error;
   }
 
@@ -173,31 +184,104 @@ export async function demoLoginAction(role: UserRole) {
       redirectTo: homeForRole(role),
     });
   } catch (error) {
-    // redirect throw expected
     throw error;
   }
 
   op.success({ role: role.toUpperCase(), email: maskEmail(creds.email) });
 }
 
-export async function completeOtpAction() {
+/** Send / resend email OTP for the authenticated (pre-OTP) session. */
+export async function sendOtpAction() {
   const op = createServerOp({
     domain: "AUTH",
-    operation: "COMPLETE_OTP",
+    operation: "SEND_OTP",
     source: "SERVER-ACTION",
   });
-  const session = await auth();
-  op.auth(session?.user);
 
-  if (!session?.user) {
-    op.denied("unauthenticated");
-    return { error: "Not authenticated" };
+  try {
+    const session = await auth();
+    op.auth(session?.user);
+    if (!session?.user?.id) {
+      op.denied("unauthenticated");
+      return { error: "You must be signed in." };
+    }
+    if (session.user.otpVerified) {
+      op.success({ alreadyVerified: true });
+      return { success: true, alreadyVerified: true as const };
+    }
+
+    op.allowed("send otp");
+    await connectDB();
+    const result = await issueEmailOtp(session.user.id);
+    op.success({
+      delivered: result.delivered,
+      mode: result.mode,
+      reused: "reused" in result ? result.reused : false,
+    });
+
+    let message =
+      "Verification code generated. Check server logs if SMTP is not configured (dev).";
+    if ("reused" in result && result.reused) {
+      message = "A code was already sent. Please wait before requesting another.";
+    } else if (result.delivered) {
+      message = "Verification code sent to your email.";
+    }
+
+    return {
+      success: true as const,
+      expiresAt: result.expiresAt,
+      resendAvailableAt: result.resendAvailableAt,
+      delivered: result.delivered,
+      message,
+    };
+  } catch (error) {
+    op.fail(error);
+    return toAuthError(error);
   }
+}
 
-  op.allowed();
-  op.success({ id: maskId(session.user.id) });
-  // Phase 0: accept any completed OTP UI submission (mock OTP).
-  return { success: true };
+/** Verify OTP server-side and mark session eligible for otpVerified sync. */
+export async function verifyOtpAction(raw: unknown) {
+  const op = createServerOp({
+    domain: "AUTH",
+    operation: "VERIFY_OTP",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const session = await auth();
+    op.auth(session?.user);
+    if (!session?.user?.id) {
+      op.denied("unauthenticated");
+      return { error: "You must be signed in." };
+    }
+
+    const parsed = otpCodeSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { error: parsed.error.issues[0]?.message || "Invalid code." };
+    }
+
+    op.allowed("verify otp");
+    await connectDB();
+    await verifyEmailOtp(session.user.id, parsed.data.code);
+
+    op.success({
+      id: maskId(session.user.id),
+      redirectTo: homeForRole(session.user.role),
+    });
+    return {
+      success: true as const,
+      redirectTo: homeForRole(session.user.role),
+    };
+  } catch (error) {
+    op.fail(error);
+    return toAuthError(error);
+  }
+}
+
+/** @deprecated Use verifyOtpAction — kept as alias during transition. */
+export async function completeOtpAction() {
+  return { error: "Enter the verification code from your email." };
 }
 
 export async function completeFaceAction() {
@@ -212,6 +296,11 @@ export async function completeFaceAction() {
   if (!session?.user) {
     op.denied("unauthenticated");
     return { error: "Not authenticated" };
+  }
+
+  if (!session.user.otpVerified) {
+    op.denied("otp_required");
+    return { error: "Complete email OTP verification first." };
   }
 
   op.allowed();

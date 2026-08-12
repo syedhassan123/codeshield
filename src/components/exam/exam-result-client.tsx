@@ -63,10 +63,33 @@ export function ExamResultClient({
             />
           </div>
 
+          {(() => {
+            const codingQs = result.questions.filter((q) => q.type === "coding");
+            if (!codingQs.length) return null;
+            const passed = codingQs.reduce(
+              (sum, q) => sum + (q.passedTests || 0),
+              0,
+            );
+            const total = codingQs.reduce(
+              (sum, q) => sum + (q.totalTests || 0),
+              0,
+            );
+            return (
+              <div className="mt-4 rounded-xl border border-border p-4 text-sm">
+                <p className="font-semibold">Coding</p>
+                <p className="text-muted-foreground mt-1">
+                  {codingQs.length} Question{codingQs.length === 1 ? "" : "s"} ·{" "}
+                  {passed}/{total || "—"} Tests Passed · {result.codingScore}/
+                  {result.codingMaxMarks} Marks
+                </p>
+              </div>
+            );
+          })()}
+
           {evaluationPending && (
             <p className="text-sm text-muted-foreground mt-4">
-              Some subjective/coding answers are still pending admin evaluation.
-              Your final score will update when grading is complete.
+              Some subjective answers are still pending admin evaluation. Your
+              final score will update when grading is complete.
             </p>
           )}
 
@@ -98,15 +121,21 @@ export function ExamResultClient({
                     q.evalStatus === "incorrect" && "text-danger",
                     q.evalStatus === "pending_evaluation" && "text-primary",
                     q.evalStatus === "manually_graded" && "text-success",
+                    q.evalStatus === "auto_graded" && "text-success",
                   )}
                 >
                   {q.evalStatus === "correct" &&
                     `Correct (+${q.awardedPoints})`}
-                  {q.evalStatus === "incorrect" && "Incorrect"}
+                  {q.evalStatus === "incorrect" &&
+                    (q.type === "coding"
+                      ? `0/${q.points} marks`
+                      : "Incorrect")}
                   {q.evalStatus === "pending_evaluation" &&
                     "Pending evaluation"}
                   {q.evalStatus === "manually_graded" &&
                     `Graded (+${q.awardedPoints})`}
+                  {q.evalStatus === "auto_graded" &&
+                    `Auto graded (+${q.awardedPoints})`}
                   {q.evalStatus === "ungraded" && "Ungraded"}
                 </span>
               </div>
@@ -127,6 +156,34 @@ export function ExamResultClient({
                       {q.correctOptionKey || "—"}
                     </span>
                   </p>
+                </div>
+              ) : q.type === "coding" ? (
+                <div className="mt-2 text-sm space-y-2">
+                  <p className="text-muted-foreground">
+                    Language:{" "}
+                    <span className="font-semibold text-foreground">
+                      {q.selectedOptionKey || "—"}
+                    </span>
+                    {" · "}
+                    Tests:{" "}
+                    <span className="font-semibold text-foreground">
+                      {q.passedTests}/{q.totalTests}
+                    </span>
+                    {" · "}
+                    Marks:{" "}
+                    <span className="font-semibold text-foreground">
+                      {q.awardedPoints}/{q.points}
+                    </span>
+                  </p>
+                  {q.feedback?.trim() && (
+                    <p>
+                      <span className="font-semibold">Status: </span>
+                      {q.feedback}
+                    </p>
+                  )}
+                  <pre className="text-sm whitespace-pre-wrap rounded-lg bg-muted/50 p-3 font-mono text-xs">
+                    {q.textAnswer.trim() || "No code submitted."}
+                  </pre>
                 </div>
               ) : (
                 <>

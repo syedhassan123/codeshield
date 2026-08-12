@@ -45,6 +45,11 @@ const UserSchema = new Schema(
       type: Date,
       default: null,
     },
+    /** Set when email OTP succeeds for the current login; cleared conceptually by new login JWT iat. */
+    otpLoginVerifiedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -55,8 +60,20 @@ export type UserDocument = InferSchemaType<typeof UserSchema> & {
   _id: mongoose.Types.ObjectId;
 };
 
-export const User: Model<UserDocument> =
-  mongoose.models.User || mongoose.model<UserDocument>("User", UserSchema);
+function getUserModel(): Model<UserDocument> {
+  const cached = mongoose.models.User as Model<UserDocument> | undefined;
+  if (cached) {
+    // Hot-reload can keep a stale schema without otpLoginVerifiedAt.
+    if (!cached.schema.path("otpLoginVerifiedAt")) {
+      mongoose.deleteModel("User");
+    } else {
+      return cached;
+    }
+  }
+  return mongoose.model<UserDocument>("User", UserSchema);
+}
+
+export const User: Model<UserDocument> = getUserModel();
 
 export type { UserRole, UserStatus } from "@/types/user";
 export { USER_ROLES, USER_STATUSES } from "@/types/user";

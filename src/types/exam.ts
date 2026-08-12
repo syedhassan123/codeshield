@@ -11,6 +11,7 @@ export const ANSWER_EVAL_STATUSES = [
   "incorrect",
   "pending_evaluation",
   "manually_graded",
+  "auto_graded",
 ] as const;
 export type AnswerEvalStatus = (typeof ANSWER_EVAL_STATUSES)[number];
 

@@ -114,6 +114,12 @@ export async function createQuestionAction(raw: unknown) {
         codingLanguages: data.type === "coding" ? data.codingLanguages : [],
         starterCode: data.type === "coding" ? data.starterCode : {},
         testCases: data.type === "coding" ? data.testCases : [],
+        constraints: data.type === "coding" ? data.constraints : "",
+        inputFormat: data.type === "coding" ? data.inputFormat : "",
+        outputFormat: data.type === "coding" ? data.outputFormat : "",
+        examples: data.type === "coding" ? data.examples : [],
+        timeLimitMs: data.type === "coding" ? data.timeLimitMs : 3000,
+        memoryLimitMb: data.type === "coding" ? data.memoryLimitMb : 256,
       }),
     );
 
@@ -156,8 +162,14 @@ export async function updateQuestionAction(id: string, raw: unknown) {
           codingLanguages: data.type === "coding" ? data.codingLanguages : [],
           starterCode: data.type === "coding" ? data.starterCode : {},
           testCases: data.type === "coding" ? data.testCases : [],
+          constraints: data.type === "coding" ? data.constraints : "",
+          inputFormat: data.type === "coding" ? data.inputFormat : "",
+          outputFormat: data.type === "coding" ? data.outputFormat : "",
+          examples: data.type === "coding" ? data.examples : [],
+          timeLimitMs: data.type === "coding" ? data.timeLimitMs : 3000,
+          memoryLimitMb: data.type === "coding" ? data.memoryLimitMb : 256,
         },
-        { new: true, runValidators: true },
+        { returnDocument: "after", runValidators: true },
       ),
     );
     if (!doc) throw new ActionError("Question not found.");

@@ -177,7 +177,8 @@ export function AdminAttemptDetailClient({
             </div>
             {result.evaluationStatus === "pending" && (
               <p className="text-sm text-muted-foreground mt-3">
-                Grade all subjective/coding questions to complete evaluation.
+                Grade remaining subjective answers to complete evaluation.
+                Coding scores are calculated automatically from test cases.
               </p>
             )}
             <div className="mt-4">
@@ -204,7 +205,7 @@ export function AdminAttemptDetailClient({
 
           <div className="space-y-4">
             {result.questions.map((q, i) => {
-              const manual = q.type !== "mcq";
+              const manual = q.type === "subjective";
               const draft = drafts[q.questionId] ?? {
                 marks: String(q.awardedPoints),
                 feedback: q.feedback,
@@ -222,6 +223,7 @@ export function AdminAttemptDetailClient({
                         q.evalStatus === "incorrect" && "text-danger",
                         q.evalStatus === "pending_evaluation" && "text-primary",
                         q.evalStatus === "manually_graded" && "text-success",
+                        q.evalStatus === "auto_graded" && "text-success",
                       )}
                     >
                       {labelForEval(q.evalStatus, q.awardedPoints)}
@@ -251,6 +253,98 @@ export function AdminAttemptDetailClient({
                           {q.awardedPoints}/{q.points}
                         </strong>
                       </p>
+                    </div>
+                  ) : q.type === "coding" ? (
+                    <div className="space-y-3">
+                      <div className="text-sm text-muted-foreground space-y-1">
+                        <p>
+                          Language:{" "}
+                          <strong className="text-foreground">
+                            {q.selectedOptionKey || "—"}
+                          </strong>
+                        </p>
+                        <p>
+                          Tests passed:{" "}
+                          <strong className="text-foreground">
+                            {q.passedTests}/{q.totalTests}
+                          </strong>
+                        </p>
+                        <p>
+                          Coding score:{" "}
+                          <strong className="text-foreground">
+                            {q.awardedPoints}/{q.points}
+                          </strong>
+                        </p>
+                        {q.gradedAt && (
+                          <p>
+                            Graded at:{" "}
+                            <strong className="text-foreground">
+                              {new Date(q.gradedAt).toLocaleString()}
+                            </strong>
+                          </p>
+                        )}
+                        {q.feedback?.trim() && (
+                          <p>
+                            Status:{" "}
+                            <strong className="text-foreground">
+                              {q.feedback}
+                            </strong>
+                          </p>
+                        )}
+                      </div>
+                      <pre className="text-xs whitespace-pre-wrap rounded-lg bg-slate-950 text-slate-100 font-mono p-3">
+                        {q.textAnswer.trim() || "No code submitted."}
+                      </pre>
+                      <div className="grid md:grid-cols-[140px_1fr_auto] gap-3 items-end">
+                        <div>
+                          <label className="text-xs font-semibold text-muted-foreground">
+                            Override marks (0–{q.points})
+                          </label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={q.points}
+                            step={0.5}
+                            className="mt-1.5"
+                            value={draft.marks}
+                            onChange={(e) =>
+                              setDrafts((prev) => ({
+                                ...prev,
+                                [q.questionId]: {
+                                  ...draft,
+                                  marks: e.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-muted-foreground">
+                            Feedback
+                          </label>
+                          <Input
+                            className="mt-1.5"
+                            value={draft.feedback}
+                            onChange={(e) =>
+                              setDrafts((prev) => ({
+                                ...prev,
+                                [q.questionId]: {
+                                  ...draft,
+                                  feedback: e.target.value,
+                                },
+                              }))
+                            }
+                            placeholder="Optional override note"
+                          />
+                        </div>
+                        <Button
+                          size="sm"
+                          disabled={pending}
+                          onClick={() => saveGrade(q.questionId)}
+                        >
+                          Override grade
+                        </Button>
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -339,5 +433,6 @@ function labelForEval(status: string, awarded: number) {
   if (status === "incorrect") return "Incorrect";
   if (status === "pending_evaluation") return "Pending evaluation";
   if (status === "manually_graded") return `Manually graded (+${awarded})`;
+  if (status === "auto_graded") return `Auto graded (+${awarded})`;
   return status;
 }

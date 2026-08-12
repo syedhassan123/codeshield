@@ -9,8 +9,6 @@ export type ScoreQuestionInput = {
 };
 
 export function recalculateResultScores(questions: ScoreQuestionInput[]) {
-  debugLog("SCORE", "recalculating...");
-
   let objectiveScore = 0;
   let objectiveMaxMarks = 0;
   let subjectiveScore = 0;
@@ -52,7 +50,7 @@ export function recalculateResultScores(questions: ScoreQuestionInput[]) {
   const evaluationStatus: EvaluationStatus =
     pendingManualCount > 0 ? "pending" : "completed";
 
-  debugLog("SCORE", "completed", {
+  debugLog("SCORE", "calculated", {
     objectiveScore,
     subjectiveScore,
     codingScore,
