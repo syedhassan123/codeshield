@@ -23,6 +23,22 @@ export function ExamGateClient({
 
   const start = () => {
     setError("");
+    // Fullscreen must be requested from a user gesture (not page load).
+    // Browsers may still deny; the session page shows a non-blocking message.
+    try {
+      sessionStorage.setItem("codeshield-exam-fs-intent", "1");
+      if (
+        document.documentElement.requestFullscreen &&
+        !document.fullscreenElement
+      ) {
+        document.documentElement.requestFullscreen().catch(() => {
+          sessionStorage.setItem("codeshield-exam-fs-denied", "1");
+        });
+      }
+    } catch {
+      sessionStorage.setItem("codeshield-exam-fs-denied", "1");
+    }
+
     startTransition(async () => {
       if (activeAttemptId) {
         router.push(`/student/exam/session/${activeAttemptId}`);

@@ -13,6 +13,8 @@ import {
   submitExamAction,
 } from "@/lib/actions/exam";
 import { ExamCodingPanel } from "@/components/exam/exam-coding-panel";
+import { ExamSecurityBanner } from "@/components/exam/exam-security-banner";
+import { useExamSecurity } from "@/hooks/use-exam-security";
 import type {
   SerializedAnswer,
   SerializedAttempt,
@@ -78,6 +80,19 @@ export function ExamSessionClient({
   const skewRef = useRef(Date.now() - new Date(serverNow).getTime());
   const autoSubmitted = useRef(false);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [securityEnabled, setSecurityEnabled] = useState(true);
+
+  const {
+    warning,
+    fullscreenActive,
+    fullscreenMessage,
+    enterFullscreen,
+    exitFullscreenAfterSubmit,
+    dismissWarning,
+  } = useExamSecurity({
+    attemptId: attempt.id,
+    enabled: securityEnabled && attempt.status === "in_progress",
+  });
 
   const current = questions[index];
   const answeredCount = useMemo(
@@ -141,13 +156,18 @@ export function ExamSessionClient({
   const submit = (forced = false) => {
     if (autoSubmitted.current) return;
     autoSubmitted.current = true;
+    setSecurityEnabled(false);
     startTransition(async () => {
       const result = await submitExamAction(attempt.id);
       if ("error" in result && result.error) {
         setError(result.error);
         autoSubmitted.current = false;
+        setSecurityEnabled(true);
         return;
       }
+      // Exit fullscreen only after successful final submit (not autosave).
+      // Intentional exit is suppressed from FULLSCREEN_EXIT security logging.
+      await exitFullscreenAfterSubmit();
       router.replace(`/student/exam/result/${attempt.id}`);
     });
     if (!forced) setConfirmOpen(false);
@@ -242,6 +262,14 @@ export function ExamSessionClient({
           />
         </div>
       </div>
+
+      <ExamSecurityBanner
+        warning={warning}
+        fullscreenActive={fullscreenActive}
+        fullscreenMessage={fullscreenMessage}
+        onEnterFullscreen={enterFullscreen}
+        onDismiss={dismissWarning}
+      />
 
       <div className="relative max-w-6xl mx-auto p-4 md:p-6 grid lg:grid-cols-[220px_1fr] gap-4">
         <aside className="card-soft p-4 h-fit">

@@ -12,6 +12,7 @@ import {
   maskId,
 } from "@/lib/debug";
 import { recalculateResultScores } from "@/lib/exam/score";
+import { buildSecuritySummary } from "@/lib/exam/security";
 import {
   serializeAttempt,
   serializeResult,
@@ -23,6 +24,7 @@ import {
 import { Assessment } from "@/models/Assessment";
 import { Attempt } from "@/models/Attempt";
 import { Result } from "@/models/Result";
+import { SecurityEvent } from "@/models/SecurityEvent";
 import { User } from "@/models/User";
 
 function toError(error: unknown) {
@@ -241,7 +243,7 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
     );
     if (!attempt) throw new ActionError("Attempt not found.");
 
-    const [student, assessment, result] = await Promise.all([
+    const [student, assessment, result, securityEvents] = await Promise.all([
       op.runMongo("FIND_STUDENT", () =>
         User.findById(attempt.studentId).select("name email"),
       ),
@@ -253,9 +255,25 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
       op.runMongo("FIND_RESULT", () =>
         Result.findOne({ attemptId: attempt._id }),
       ),
+      op.runMongo("FIND_SECURITY_EVENTS", () =>
+        SecurityEvent.find({ attemptId: attempt._id })
+          .sort({ timestamp: 1 })
+          .lean(),
+      ),
     ]);
 
     if (!student) throw new ActionError("Student not found.");
+
+    const securitySerialized = securityEvents.map((e) => ({
+      id: e._id.toString(),
+      eventType: e.eventType,
+      severity: e.severity,
+      timestamp: new Date(e.timestamp).toISOString(),
+      metadata:
+        e.metadata && typeof e.metadata === "object"
+          ? (e.metadata as Record<string, unknown>)
+          : {},
+    }));
 
     // This exact object is returned to the client AND logged as [API RESPONSE].
     const payload = {
@@ -277,6 +295,10 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
         attempt.startedAt,
         attempt.submittedAt ?? null,
       ),
+      security: {
+        summary: buildSecuritySummary(securitySerialized),
+        events: securitySerialized,
+      },
     };
 
     return op.respond(payload, 200);

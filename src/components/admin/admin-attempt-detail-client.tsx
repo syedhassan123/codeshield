@@ -11,7 +11,10 @@ import { displayType } from "@/lib/serializers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
+import { AdminSecurityReport } from "@/components/admin/admin-security-report";
 import { cn } from "@/lib/utils";
+import type { SecuritySummary } from "@/lib/exam/security";
+import type { SerializedSecurityEvent } from "@/lib/actions/exam-security";
 
 export function AdminAttemptDetailClient({
   attempt: initialAttempt,
@@ -19,6 +22,7 @@ export function AdminAttemptDetailClient({
   assessment,
   result: initialResult,
   timeTaken,
+  security,
 }: {
   attempt: SerializedAttempt;
   student: { id: string; name: string; email: string };
@@ -31,6 +35,10 @@ export function AdminAttemptDetailClient({
   };
   result: SerializedResult | null;
   timeTaken: string | null;
+  security?: {
+    summary: SecuritySummary;
+    events: SerializedSecurityEvent[];
+  } | null;
 }) {
   const [attempt] = useState(initialAttempt);
   const [result, setResult] = useState(initialResult);
@@ -136,6 +144,13 @@ export function AdminAttemptDetailClient({
           <p className="text-sm mt-1">Time taken: {timeTaken ?? "—"}</p>
         </div>
       </div>
+
+      {security && (
+        <AdminSecurityReport
+          summary={security.summary}
+          events={security.events}
+        />
+      )}
 
       {result ? (
         <>

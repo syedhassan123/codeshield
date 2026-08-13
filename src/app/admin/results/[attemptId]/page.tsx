@@ -27,6 +27,7 @@ export default async function AdminAttemptDetailPage({
       assessment={data.assessment}
       result={data.result}
       timeTaken={data.timeTaken}
+      security={"security" in data ? data.security : null}
     />
   );
 }
