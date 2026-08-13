@@ -30,6 +30,7 @@ export default async function ExamSessionPage({
       questions={data.questions}
       answers={data.answers}
       serverNow={data.serverNow}
+      security={"security" in data ? data.security : undefined}
     />
   );
 }

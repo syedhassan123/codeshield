@@ -53,6 +53,12 @@ export function AssessmentDetailClient({
     difficulty: initialAssessment.difficulty,
     durationMin: initialAssessment.durationMin,
     visibility: initialAssessment.visibility,
+    security: initialAssessment.security ?? {
+      requireCamera: false,
+      requireFullscreen: true,
+      blockCopyPaste: true,
+      monitorTabSwitching: true,
+    },
   });
 
   const available = useMemo(
@@ -241,6 +247,39 @@ export function AssessmentDetailClient({
               />
             </div>
           </div>
+
+          <div className="rounded-xl border border-border p-4 space-y-3">
+            <h4 className="text-sm font-semibold">Exam security settings</h4>
+            {(
+              [
+                ["requireCamera", "Require camera / recording"],
+                ["requireFullscreen", "Require fullscreen"],
+                ["blockCopyPaste", "Block copy / paste / cut"],
+                ["monitorTabSwitching", "Monitor tab switching"],
+              ] as const
+            ).map(([key, label]) => (
+              <label
+                key={key}
+                className="flex items-center justify-between gap-3 text-sm"
+              >
+                <span>{label}</span>
+                <input
+                  type="checkbox"
+                  checked={form.security[key]}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      security: {
+                        ...form.security,
+                        [key]: e.target.checked,
+                      },
+                    })
+                  }
+                />
+              </label>
+            ))}
+          </div>
+
           {error && (
             <div className="text-xs font-semibold text-danger bg-danger-soft px-3 py-2 rounded-lg">
               {error}

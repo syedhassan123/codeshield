@@ -28,6 +28,7 @@ export default async function AdminAttemptDetailPage({
       result={data.result}
       timeTaken={data.timeTaken}
       security={"security" in data ? data.security : null}
+      recording={"recording" in data ? data.recording : null}
     />
   );
 }

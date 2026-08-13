@@ -6,6 +6,8 @@ import {
   SECURITY_CLIPBOARD_DEDUP_MS,
   SECURITY_LEAVE_DEDUP_MS,
 } from "@/lib/exam/security";
+import type { AssessmentSecuritySettings } from "@/types/assessment-security";
+import { DEFAULT_ASSESSMENT_SECURITY } from "@/types/assessment-security";
 import type { SecurityEventType } from "@/types/exam-security";
 
 export type ExamSecurityWarning = {
@@ -17,6 +19,7 @@ type Options = {
   attemptId: string;
   /** When false, listeners are not attached (e.g. after submit). */
   enabled?: boolean;
+  settings?: AssessmentSecuritySettings;
 };
 
 /**
@@ -28,7 +31,11 @@ type Options = {
  * - Clipboard prevention works for standard Ctrl/Cmd shortcuts and events;
  *   OS-level or browser extensions may still bypass.
  */
-export function useExamSecurity({ attemptId, enabled = true }: Options) {
+export function useExamSecurity({
+  attemptId,
+  enabled = true,
+  settings = DEFAULT_ASSESSMENT_SECURITY,
+}: Options) {
   const [warning, setWarning] = useState<ExamSecurityWarning>(null);
   const [violationCount, setViolationCount] = useState(0);
   const [fullscreenActive, setFullscreenActive] = useState(false);
@@ -40,11 +47,13 @@ export function useExamSecurity({ attemptId, enabled = true }: Options) {
   const violationCountRef = useRef(0);
   const enabledRef = useRef(enabled);
   const attemptIdRef = useRef(attemptId);
+  const settingsRef = useRef(settings);
   /** When true, fullscreenchange must not log FULLSCREEN_EXIT (intentional post-submit exit). */
   const suppressFullscreenExitRef = useRef(false);
 
   enabledRef.current = enabled;
   attemptIdRef.current = attemptId;
+  settingsRef.current = settings;
 
   const showWarning = useCallback((kind: "leave" | "clipboard" | "fullscreen") => {
     const nextCount = violationCountRef.current;
@@ -114,6 +123,7 @@ export function useExamSecurity({ attemptId, enabled = true }: Options) {
   );
 
   const enterFullscreen = useCallback(async () => {
+    if (!settingsRef.current.requireFullscreen) return;
     setFullscreenMessage("");
     try {
       if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
@@ -161,6 +171,7 @@ export function useExamSecurity({ attemptId, enabled = true }: Options) {
     if (!enabled) return;
 
     const onFullscreenChange = () => {
+      if (!settingsRef.current.requireFullscreen) return;
       const active = Boolean(document.fullscreenElement);
       setFullscreenActive(active);
       if (!active) {
@@ -171,6 +182,7 @@ export function useExamSecurity({ attemptId, enabled = true }: Options) {
     };
 
     const onVisibility = () => {
+      if (!settingsRef.current.monitorTabSwitching) return;
       if (document.visibilityState === "hidden") {
         // Prefer TAB_SWITCH over WINDOW_BLUR when both fire for one action.
         void report("TAB_SWITCH", { source: "visibilitychange" }, "leave");
@@ -178,6 +190,7 @@ export function useExamSecurity({ attemptId, enabled = true }: Options) {
     };
 
     const onBlur = () => {
+      if (!settingsRef.current.monitorTabSwitching) return;
       // If the document is already hidden, visibilitychange covers this leave.
       if (document.visibilityState === "hidden") return;
       void report("WINDOW_BLUR", { source: "blur" }, "leave");
@@ -185,6 +198,7 @@ export function useExamSecurity({ attemptId, enabled = true }: Options) {
 
     const blockClipboard = (type: "COPY_ATTEMPT" | "PASTE_ATTEMPT" | "CUT_ATTEMPT") =>
       (e: Event) => {
+        if (!settingsRef.current.blockCopyPaste) return;
         e.preventDefault();
         void report(type, { source: e.type }, "clipboard");
       };
@@ -194,11 +208,13 @@ export function useExamSecurity({ attemptId, enabled = true }: Options) {
     const onCut = blockClipboard("CUT_ATTEMPT");
 
     const onContextMenu = (e: MouseEvent) => {
+      if (!settingsRef.current.blockCopyPaste) return;
       e.preventDefault();
       void report("CONTEXT_MENU_ATTEMPT", { source: "contextmenu" }, "clipboard");
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!settingsRef.current.blockCopyPaste) return;
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
       const key = e.key.toLowerCase();
@@ -228,23 +244,27 @@ export function useExamSecurity({ attemptId, enabled = true }: Options) {
 
     // If Start Exam requested fullscreen but navigation dropped it, surface a nudge.
     try {
-      if (sessionStorage.getItem("codeshield-exam-fs-denied") === "1") {
-        setFullscreenMessage(
-          "Fullscreen could not be enabled by the browser. You may continue the exam, but please stay focused on this window.",
-        );
-        sessionStorage.removeItem("codeshield-exam-fs-denied");
-      }
-      if (
-        sessionStorage.getItem("codeshield-exam-fs-intent") === "1" &&
-        !document.fullscreenElement
-      ) {
-        sessionStorage.removeItem("codeshield-exam-fs-intent");
-        // Cannot auto-request without a gesture after navigation; show return button.
-        setFullscreenMessage(
-          "Please enter fullscreen mode to continue in a secure exam environment.",
-        );
+      if (settings.requireFullscreen) {
+        if (sessionStorage.getItem("codeshield-exam-fs-denied") === "1") {
+          setFullscreenMessage(
+            "Fullscreen could not be enabled by the browser. You may continue the exam, but please stay focused on this window.",
+          );
+          sessionStorage.removeItem("codeshield-exam-fs-denied");
+        }
+        if (
+          sessionStorage.getItem("codeshield-exam-fs-intent") === "1" &&
+          !document.fullscreenElement
+        ) {
+          sessionStorage.removeItem("codeshield-exam-fs-intent");
+          setFullscreenMessage(
+            "Please enter fullscreen mode to continue in a secure exam environment.",
+          );
+        } else {
+          sessionStorage.removeItem("codeshield-exam-fs-intent");
+        }
       } else {
         sessionStorage.removeItem("codeshield-exam-fs-intent");
+        sessionStorage.removeItem("codeshield-exam-fs-denied");
       }
     } catch {
       // sessionStorage may be unavailable

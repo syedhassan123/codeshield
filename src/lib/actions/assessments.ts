@@ -18,6 +18,10 @@ import {
 import { nextSequence } from "@/models/Counter";
 import { Assessment } from "@/models/Assessment";
 import { Question } from "@/models/Question";
+import {
+  DEFAULT_ASSESSMENT_SECURITY,
+  normalizeAssessmentSecurity,
+} from "@/types/assessment-security";
 
 function toError(error: unknown) {
   if (error instanceof ActionError) return { error: error.message };
@@ -147,6 +151,10 @@ export async function createAssessmentAction(raw: unknown) {
     );
     const code = `ASM-${seq}`;
 
+    const security = normalizeAssessmentSecurity(
+      data.security ?? DEFAULT_ASSESSMENT_SECURITY,
+    );
+
     const doc = await op.runMongo("creating assessment", () =>
       Assessment.create({
         code,
@@ -164,6 +172,7 @@ export async function createAssessmentAction(raw: unknown) {
         scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : null,
         status: data.scheduledAt ? "scheduled" : "draft",
         createdBy: session.user.id,
+        security,
       }),
     );
 
@@ -218,6 +227,9 @@ export async function updateAssessmentAction(id: string, raw: unknown) {
       (sid) => new mongoose.Types.ObjectId(sid),
     );
     doc.scheduledAt = data.scheduledAt ? new Date(data.scheduledAt) : null;
+    doc.security = normalizeAssessmentSecurity(
+      data.security ?? doc.security ?? DEFAULT_ASSESSMENT_SECURITY,
+    );
 
     if (doc.status === "draft" && data.scheduledAt) {
       doc.status = "scheduled";

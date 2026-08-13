@@ -12,9 +12,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { AdminSecurityReport } from "@/components/admin/admin-security-report";
+import { AdminProctoringReport } from "@/components/admin/admin-proctoring-report";
 import { cn } from "@/lib/utils";
 import type { SecuritySummary } from "@/lib/exam/security";
 import type { SerializedSecurityEvent } from "@/lib/actions/exam-security";
+import type { SerializedExamRecording } from "@/lib/actions/exam-recording";
+import type { AssessmentSecuritySettings } from "@/types/assessment-security";
 
 export function AdminAttemptDetailClient({
   attempt: initialAttempt,
@@ -23,6 +26,7 @@ export function AdminAttemptDetailClient({
   result: initialResult,
   timeTaken,
   security,
+  recording = null,
 }: {
   attempt: SerializedAttempt;
   student: { id: string; name: string; email: string };
@@ -32,6 +36,7 @@ export function AdminAttemptDetailClient({
     type: string;
     durationMin: number;
     totalMarks: number;
+    security?: AssessmentSecuritySettings;
   };
   result: SerializedResult | null;
   timeTaken: string | null;
@@ -39,6 +44,7 @@ export function AdminAttemptDetailClient({
     summary: SecuritySummary;
     events: SerializedSecurityEvent[];
   } | null;
+  recording?: SerializedExamRecording | null;
 }) {
   const [attempt] = useState(initialAttempt);
   const [result, setResult] = useState(initialResult);
@@ -151,6 +157,11 @@ export function AdminAttemptDetailClient({
           events={security.events}
         />
       )}
+
+      <AdminProctoringReport
+        securitySettings={assessment.security}
+        recording={recording}
+      />
 
       {result ? (
         <>

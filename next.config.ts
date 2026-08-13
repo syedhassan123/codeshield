@@ -3,7 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
-      bodySizeLimit: "2mb",
+      // Exam webcam recordings can be large (Phase 7).
+      bodySizeLimit: "100mb",
     },
   },
 };

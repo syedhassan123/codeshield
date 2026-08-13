@@ -37,6 +37,12 @@ const emptyForm = {
   durationMin: 60,
   visibility: "all" as const,
   scheduledAt: "",
+  security: {
+    requireCamera: false,
+    requireFullscreen: true,
+    blockCopyPaste: true,
+    monitorTabSwitching: true,
+  },
 };
 
 export function AssessmentsManagerClient({
@@ -311,6 +317,39 @@ export function AssessmentsManagerClient({
                 }
               />
             </div>
+          </div>
+          <div className="rounded-xl border border-border p-3 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Security
+            </p>
+            {(
+              [
+                ["requireCamera", "Require camera"],
+                ["requireFullscreen", "Require fullscreen"],
+                ["blockCopyPaste", "Block copy/paste"],
+                ["monitorTabSwitching", "Monitor tab switching"],
+              ] as const
+            ).map(([key, label]) => (
+              <label
+                key={key}
+                className="flex items-center justify-between gap-3 text-sm"
+              >
+                <span>{label}</span>
+                <input
+                  type="checkbox"
+                  checked={form.security[key]}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      security: {
+                        ...form.security,
+                        [key]: e.target.checked,
+                      },
+                    })
+                  }
+                />
+              </label>
+            ))}
           </div>
           {error && (
             <div className="text-xs font-semibold text-danger bg-danger-soft px-3 py-2 rounded-lg">

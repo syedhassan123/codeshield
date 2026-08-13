@@ -3,6 +3,7 @@ import type { AssessmentDocument } from "@/models/Assessment";
 import type { AttemptDocument } from "@/models/Attempt";
 import type { QuestionDocument } from "@/models/Question";
 import type { ResultDocument } from "@/models/Result";
+import { normalizeAssessmentSecurity } from "@/types/assessment-security";
 
 export function serializeQuestion(doc: QuestionDocument) {
   const starter =
@@ -82,6 +83,17 @@ export function serializeAssessment(
     publishedAt: doc.publishedAt
       ? new Date(doc.publishedAt).toISOString()
       : null,
+    security: normalizeAssessmentSecurity(
+      doc.security as
+        | {
+            requireCamera?: boolean;
+            requireFullscreen?: boolean;
+            blockCopyPaste?: boolean;
+            monitorTabSwitching?: boolean;
+          }
+        | null
+        | undefined,
+    ),
     createdAt: toIso((doc as { createdAt?: Date }).createdAt),
     updatedAt: toIso((doc as { updatedAt?: Date }).updatedAt),
   };

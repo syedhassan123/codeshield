@@ -19,6 +19,14 @@ export const assessmentInputSchema = z.object({
   assignedStudentIds: z.array(z.string()).optional().default([]),
   scheduledAt: z.string().optional().nullable(),
   questionIds: z.array(z.string()).optional().default([]),
+  security: z
+    .object({
+      requireCamera: z.boolean(),
+      requireFullscreen: z.boolean(),
+      blockCopyPaste: z.boolean(),
+      monitorTabSwitching: z.boolean(),
+    })
+    .optional(),
 });
 
 export const assessmentStatusSchema = z.object({

@@ -54,6 +54,18 @@ export function AdminSecurityReport({
           value={String(counts.CONTEXT_MENU_ATTEMPT)}
         />
         <Stat label="Window blur" value={String(counts.WINDOW_BLUR)} />
+        <Stat
+          label="Camera issues"
+          value={String(
+            (counts.CAMERA_PERMISSION_DENIED ?? 0) +
+              (counts.CAMERA_UNAVAILABLE ?? 0) +
+              (counts.CAMERA_DISCONNECTED ?? 0),
+          )}
+        />
+        <Stat
+          label="Upload failures"
+          value={String(counts.RECORDING_UPLOAD_FAILED ?? 0)}
+        />
       </div>
 
       <h4 className="text-sm font-semibold mb-3">Event timeline</h4>

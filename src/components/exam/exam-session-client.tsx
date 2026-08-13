@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/exam";
 import { ExamCodingPanel } from "@/components/exam/exam-coding-panel";
 import { ExamSecurityBanner } from "@/components/exam/exam-security-banner";
+import { useExamRecording } from "@/hooks/use-exam-recording";
 import { useExamSecurity } from "@/hooks/use-exam-security";
 import type {
   SerializedAnswer,
@@ -21,6 +22,11 @@ import type {
   SerializedExamQuestion,
 } from "@/lib/serializers";
 import { displayType } from "@/lib/serializers";
+import {
+  DEFAULT_ASSESSMENT_SECURITY,
+  normalizeAssessmentSecurity,
+  type AssessmentSecuritySettings,
+} from "@/types/assessment-security";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
@@ -57,13 +63,18 @@ export function ExamSessionClient({
   questions,
   answers: initialAnswers,
   serverNow,
+  security: securityProp,
 }: {
   attempt: SerializedAttempt;
   questions: SerializedExamQuestion[];
   answers: SerializedAnswer[];
   serverNow: string;
+  security?: AssessmentSecuritySettings;
 }) {
   const router = useRouter();
+  const security = normalizeAssessmentSecurity(
+    securityProp ?? DEFAULT_ASSESSMENT_SECURITY,
+  );
   const [attempt, setAttempt] = useState(initialAttempt);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState(() => buildAnswerMap(initialAnswers));
@@ -72,6 +83,7 @@ export function ExamSessionClient({
   );
   const [error, setError] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState("");
   const [pending, startTransition] = useTransition();
   const [remainingMs, setRemainingMs] = useState(() => {
     const skew = Date.now() - new Date(serverNow).getTime();
@@ -81,6 +93,13 @@ export function ExamSessionClient({
   const autoSubmitted = useRef(false);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [securityEnabled, setSecurityEnabled] = useState(true);
+  const [cameraDeviceId] = useState(() => {
+    try {
+      return sessionStorage.getItem("codeshield-exam-camera-device") || "";
+    } catch {
+      return "";
+    }
+  });
 
   const {
     warning,
@@ -92,6 +111,23 @@ export function ExamSessionClient({
   } = useExamSecurity({
     attemptId: attempt.id,
     enabled: securityEnabled && attempt.status === "in_progress",
+    settings: security,
+  });
+
+  const {
+    videoRef,
+    cameraActive,
+    cameraWarning,
+    recordingStatus,
+    reconnect,
+    finalizeAfterSubmit,
+  } = useExamRecording({
+    attemptId: attempt.id,
+    enabled:
+      security.requireCamera &&
+      securityEnabled &&
+      attempt.status === "in_progress",
+    deviceId: cameraDeviceId,
   });
 
   const current = questions[index];
@@ -157,17 +193,25 @@ export function ExamSessionClient({
     if (autoSubmitted.current) return;
     autoSubmitted.current = true;
     setSecurityEnabled(false);
+    setSubmitPhase("Submitting exam…");
     startTransition(async () => {
       const result = await submitExamAction(attempt.id);
       if ("error" in result && result.error) {
         setError(result.error);
         autoSubmitted.current = false;
         setSecurityEnabled(true);
+        setSubmitPhase("");
         return;
       }
       // Exit fullscreen only after successful final submit (not autosave).
-      // Intentional exit is suppressed from FULLSCREEN_EXIT security logging.
       await exitFullscreenAfterSubmit();
+
+      if (security.requireCamera) {
+        setSubmitPhase("Finalizing camera recording…");
+        await finalizeAfterSubmit();
+      }
+
+      setSubmitPhase("");
       router.replace(`/student/exam/result/${attempt.id}`);
     });
     if (!forced) setConfirmOpen(false);
@@ -270,6 +314,52 @@ export function ExamSessionClient({
         onEnterFullscreen={enterFullscreen}
         onDismiss={dismissWarning}
       />
+
+      {security.requireCamera && (
+        <div className="relative z-20 max-w-6xl mx-auto px-4 pt-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative w-28 h-20 rounded-lg overflow-hidden border border-border bg-black shrink-0">
+              <video
+                ref={videoRef}
+                className="w-full h-full object-cover"
+                muted
+                playsInline
+                autoPlay
+              />
+            </div>
+            <div className="text-xs">
+              <p className="font-semibold">
+                Camera:{" "}
+                {cameraActive
+                  ? "Active"
+                  : recordingStatus === "failed"
+                    ? "Unavailable"
+                    : "Starting…"}
+              </p>
+              {cameraWarning && (
+                <p className="text-danger font-medium mt-1 max-w-md">
+                  {cameraWarning}{" "}
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() => void reconnect()}
+                  >
+                    Reconnect
+                  </button>
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {submitPhase && (
+        <div className="relative z-30 max-w-6xl mx-auto px-4 pt-2">
+          <p className="text-sm font-semibold text-primary bg-primary-soft px-3 py-2 rounded-lg">
+            {submitPhase}
+          </p>
+        </div>
+      )}
 
       <div className="relative max-w-6xl mx-auto p-4 md:p-6 grid lg:grid-cols-[220px_1fr] gap-4">
         <aside className="card-soft p-4 h-fit">

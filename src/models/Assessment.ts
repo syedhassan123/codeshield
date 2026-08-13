@@ -5,6 +5,29 @@ import {
   DIFFICULTIES,
   QUESTION_CATEGORIES,
 } from "@/types/assessment";
+import { DEFAULT_ASSESSMENT_SECURITY } from "@/types/assessment-security";
+
+const AssessmentSecuritySchema = new Schema(
+  {
+    requireCamera: {
+      type: Boolean,
+      default: DEFAULT_ASSESSMENT_SECURITY.requireCamera,
+    },
+    requireFullscreen: {
+      type: Boolean,
+      default: DEFAULT_ASSESSMENT_SECURITY.requireFullscreen,
+    },
+    blockCopyPaste: {
+      type: Boolean,
+      default: DEFAULT_ASSESSMENT_SECURITY.blockCopyPaste,
+    },
+    monitorTabSwitching: {
+      type: Boolean,
+      default: DEFAULT_ASSESSMENT_SECURITY.monitorTabSwitching,
+    },
+  },
+  { _id: false },
+);
 
 const AssessmentSchema = new Schema(
   {
@@ -66,7 +89,6 @@ const AssessmentSchema = new Schema(
         ref: "Question",
       },
     ],
-    /** all = every student; assigned = only assignedStudentIds */
     visibility: {
       type: String,
       enum: ["all", "assigned"],
@@ -91,6 +113,10 @@ const AssessmentSchema = new Schema(
       ref: "User",
       required: true,
     },
+    security: {
+      type: AssessmentSecuritySchema,
+      default: () => ({ ...DEFAULT_ASSESSMENT_SECURITY }),
+    },
   },
   { timestamps: true },
 );
@@ -102,6 +128,18 @@ export type AssessmentDocument = InferSchemaType<typeof AssessmentSchema> & {
   _id: mongoose.Types.ObjectId;
 };
 
-export const Assessment: Model<AssessmentDocument> =
-  mongoose.models.Assessment ||
-  mongoose.model<AssessmentDocument>("Assessment", AssessmentSchema);
+function getAssessmentModel(): Model<AssessmentDocument> {
+  const cached = mongoose.models.Assessment as
+    | Model<AssessmentDocument>
+    | undefined;
+  if (cached) {
+    if (!cached.schema.path("security")) {
+      mongoose.deleteModel("Assessment");
+    } else {
+      return cached;
+    }
+  }
+  return mongoose.model<AssessmentDocument>("Assessment", AssessmentSchema);
+}
+
+export const Assessment: Model<AssessmentDocument> = getAssessmentModel();

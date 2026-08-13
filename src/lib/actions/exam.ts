@@ -19,10 +19,12 @@ import {
   serializeResult,
 } from "@/lib/serializers";
 import { Answer } from "@/models/Answer";
+import { Assessment } from "@/models/Assessment";
 import { Attempt } from "@/models/Attempt";
 import { CodingSubmission } from "@/models/CodingSubmission";
 import { Question } from "@/models/Question";
 import { Result } from "@/models/Result";
+import { normalizeAssessmentSecurity } from "@/types/assessment-security";
 
 function toError(error: unknown) {
   if (error instanceof ActionError) return { error: error.message };
@@ -188,6 +190,22 @@ export async function loadExamSessionAction(attemptId: string) {
       Answer.find({ attemptId: attempt._id, studentId: session.user.id }),
     );
 
+    const assessment = await op.runMongo("load assessment security", () =>
+      Assessment.findById(attempt.assessmentId).select("security"),
+    );
+
+    const security = normalizeAssessmentSecurity(
+      assessment?.security as
+        | {
+            requireCamera?: boolean;
+            requireFullscreen?: boolean;
+            blockCopyPaste?: boolean;
+            monitorTabSwitching?: boolean;
+          }
+        | null
+        | undefined,
+    );
+
     debugLog("EXAM", "LOAD", {
       attemptId: maskId(attemptId),
       questionCount: ordered.length,
@@ -200,6 +218,7 @@ export async function loadExamSessionAction(attemptId: string) {
       questions: ordered,
       answers: answers.map(serializeAnswer),
       serverNow: new Date().toISOString(),
+      security,
     });
   } catch (error) {
     return op.respondError(error);

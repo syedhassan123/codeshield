@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Camera, Mic, Wifi } from "lucide-react";
 import { startExamAction } from "@/lib/actions/exam";
+import { CameraPrecheck } from "@/components/exam/camera-precheck";
 import { displayType, type SerializedAssessment } from "@/lib/serializers";
+import { normalizeAssessmentSecurity } from "@/types/assessment-security";
 import { Button } from "@/components/ui/button";
 
 export function ExamGateClient({
@@ -20,11 +22,11 @@ export function ExamGateClient({
   const router = useRouter();
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
+  const [cameraStep, setCameraStep] = useState(false);
+  const security = normalizeAssessmentSecurity(assessment.security);
 
-  const start = () => {
-    setError("");
-    // Fullscreen must be requested from a user gesture (not page load).
-    // Browsers may still deny; the session page shows a non-blocking message.
+  const requestFullscreenIfNeeded = () => {
+    if (!security.requireFullscreen) return;
     try {
       sessionStorage.setItem("codeshield-exam-fs-intent", "1");
       if (
@@ -38,10 +40,30 @@ export function ExamGateClient({
     } catch {
       sessionStorage.setItem("codeshield-exam-fs-denied", "1");
     }
+  };
 
+  const navigateToSession = (attemptId: string, deviceId?: string) => {
+    try {
+      if (deviceId) {
+        sessionStorage.setItem("codeshield-exam-camera-device", deviceId);
+      } else {
+        sessionStorage.removeItem("codeshield-exam-camera-device");
+      }
+      if (security.requireCamera) {
+        sessionStorage.setItem("codeshield-exam-camera-ok", "1");
+      }
+    } catch {
+      // ignore
+    }
+    router.push(`/student/exam/session/${attemptId}`);
+  };
+
+  const startExam = (deviceId?: string) => {
+    setError("");
+    requestFullscreenIfNeeded();
     startTransition(async () => {
       if (activeAttemptId) {
-        router.push(`/student/exam/session/${activeAttemptId}`);
+        navigateToSession(activeAttemptId, deviceId);
         return;
       }
       const result = await startExamAction(assessment.id);
@@ -50,10 +72,39 @@ export function ExamGateClient({
         return;
       }
       if ("attempt" in result && result.attempt) {
-        router.push(`/student/exam/session/${result.attempt.id}`);
+        navigateToSession(result.attempt.id, deviceId);
       }
     });
   };
+
+  const onStartClick = () => {
+    setError("");
+    if (security.requireCamera) {
+      setCameraStep(true);
+      return;
+    }
+    startExam();
+  };
+
+  if (cameraStep) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-background relative">
+        <div className="absolute inset-0 grid-bg opacity-50 pointer-events-none" />
+        <div className="relative card-soft p-8 max-w-lg w-full shadow-elevated">
+          <CameraPrecheck
+            onCancel={() => setCameraStep(false)}
+            onConfirmed={({ deviceId }) => {
+              setCameraStep(false);
+              startExam(deviceId);
+            }}
+          />
+          {error && (
+            <p className="mt-4 text-sm text-danger font-medium">{error}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-background relative">
@@ -76,10 +127,18 @@ export function ExamGateClient({
             {(assessment.instructions
               ? assessment.instructions.split("\n").filter(Boolean)
               : [
-                  "You will be monitored by AI proctoring (face, eye, behavior)",
-                  "Tab switching, copy/paste, right-click and dev tools are disabled",
-                  "Violations may auto-submit your exam",
-                  "Stay in full-screen until you finish",
+                  security.requireCamera
+                    ? "A working webcam is required for this assessment"
+                    : "Camera is optional for this assessment",
+                  security.requireFullscreen
+                    ? "Stay in full-screen until you finish"
+                    : "Fullscreen is not required",
+                  security.blockCopyPaste
+                    ? "Copy/paste and right-click are disabled"
+                    : "Copy/paste is allowed",
+                  security.monitorTabSwitching
+                    ? "Tab switching is monitored and recorded"
+                    : "Tab switching is not monitored",
                 ]
             ).map((line) => (
               <li key={line}>• {line.replace(/^•\s*/, "")}</li>
@@ -89,7 +148,10 @@ export function ExamGateClient({
 
         <div className="mt-6 grid grid-cols-3 gap-3">
           {[
-            { icon: Camera, label: "Camera" },
+            {
+              icon: Camera,
+              label: security.requireCamera ? "Camera required" : "Camera optional",
+            },
             { icon: Mic, label: "Microphone" },
             { icon: Wifi, label: "Network" },
           ].map((item) => (
@@ -111,7 +173,7 @@ export function ExamGateClient({
           <Button asChild variant="outline" className="flex-1">
             <Link href="/student/assessments">Cancel</Link>
           </Button>
-          <Button className="flex-1" onClick={start} disabled={pending}>
+          <Button className="flex-1" onClick={onStartClick} disabled={pending}>
             {pending
               ? "Starting…"
               : activeAttemptId

@@ -23,9 +23,11 @@ import {
 } from "@/lib/validators/grading";
 import { Assessment } from "@/models/Assessment";
 import { Attempt } from "@/models/Attempt";
+import { ExamRecording } from "@/models/ExamRecording";
 import { Result } from "@/models/Result";
 import { SecurityEvent } from "@/models/SecurityEvent";
 import { User } from "@/models/User";
+import { normalizeAssessmentSecurity } from "@/types/assessment-security";
 
 function toError(error: unknown) {
   if (error instanceof ActionError) return { error: error.message };
@@ -243,13 +245,14 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
     );
     if (!attempt) throw new ActionError("Attempt not found.");
 
-    const [student, assessment, result, securityEvents] = await Promise.all([
+    const [student, assessment, result, securityEvents, recording] =
+      await Promise.all([
       op.runMongo("FIND_STUDENT", () =>
         User.findById(attempt.studentId).select("name email"),
       ),
       op.runMongo("FIND_ASSESSMENT", () =>
         Assessment.findById(attempt.assessmentId).select(
-          "title type durationMin totalMarks",
+          "title type durationMin totalMarks security",
         ),
       ),
       op.runMongo("FIND_RESULT", () =>
@@ -258,6 +261,11 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
       op.runMongo("FIND_SECURITY_EVENTS", () =>
         SecurityEvent.find({ attemptId: attempt._id })
           .sort({ timestamp: 1 })
+          .lean(),
+      ),
+      op.runMongo("FIND_RECORDING", () =>
+        ExamRecording.findOne({ attemptId: attempt._id })
+          .sort({ createdAt: -1 })
           .lean(),
       ),
     ]);
@@ -289,6 +297,17 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
         type: assessment?.type ?? "mixed",
         durationMin: assessment?.durationMin ?? attempt.durationMin,
         totalMarks: assessment?.totalMarks ?? attempt.totalMarks,
+        security: normalizeAssessmentSecurity(
+          assessment?.security as
+            | {
+                requireCamera?: boolean;
+                requireFullscreen?: boolean;
+                blockCopyPaste?: boolean;
+                monitorTabSwitching?: boolean;
+              }
+            | null
+            | undefined,
+        ),
       },
       result: result ? serializeResult(result) : null,
       timeTaken: timeTakenLabel(
@@ -299,6 +318,21 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
         summary: buildSecuritySummary(securitySerialized),
         events: securitySerialized,
       },
+      recording: recording
+        ? {
+            id: recording._id.toString(),
+            status: recording.status,
+            mimeType: recording.mimeType,
+            durationSeconds: recording.durationSeconds ?? 0,
+            fileSizeBytes: recording.fileSizeBytes ?? 0,
+            startedAt: new Date(recording.startedAt).toISOString(),
+            endedAt: recording.endedAt
+              ? new Date(recording.endedAt).toISOString()
+              : null,
+            storageProvider: recording.storageProvider,
+            errorMessage: recording.errorMessage ?? "",
+          }
+        : null,
     };
 
     return op.respond(payload, 200);
