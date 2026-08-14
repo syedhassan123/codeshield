@@ -58,6 +58,8 @@ export function AssessmentDetailClient({
       requireFullscreen: true,
       blockCopyPaste: true,
       monitorTabSwitching: true,
+      requireFaceDetection: false,
+      requireHeadMonitoring: false,
     },
   });
 
@@ -253,6 +255,8 @@ export function AssessmentDetailClient({
             {(
               [
                 ["requireCamera", "Require camera / recording"],
+                ["requireFaceDetection", "Require face monitoring"],
+                ["requireHeadMonitoring", "Require head movement monitoring"],
                 ["requireFullscreen", "Require fullscreen"],
                 ["blockCopyPaste", "Block copy / paste / cut"],
                 ["monitorTabSwitching", "Monitor tab switching"],
@@ -266,15 +270,25 @@ export function AssessmentDetailClient({
                 <input
                   type="checkbox"
                   checked={form.security[key]}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const checked = e.target.checked;
                     setForm({
                       ...form,
                       security: {
                         ...form.security,
-                        [key]: e.target.checked,
+                        [key]: checked,
+                        ...(key === "requireFaceDetection" && checked
+                          ? { requireCamera: true }
+                          : {}),
+                        ...(key === "requireHeadMonitoring" && checked
+                          ? {
+                              requireCamera: true,
+                              requireFaceDetection: true,
+                            }
+                          : {}),
                       },
-                    })
-                  }
+                    });
+                  }}
                 />
               </label>
             ))}

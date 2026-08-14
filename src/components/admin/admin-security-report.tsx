@@ -66,6 +66,31 @@ export function AdminSecurityReport({
           label="Upload failures"
           value={String(counts.RECORDING_UPLOAD_FAILED ?? 0)}
         />
+        <Stat
+          label="No face events"
+          value={String(counts.NO_FACE_DETECTED ?? 0)}
+        />
+        <Stat
+          label="Multiple face events"
+          value={String(counts.MULTIPLE_FACES_DETECTED ?? 0)}
+        />
+        <Stat
+          label="Looking away"
+          value={String(
+            (counts.HEAD_LOOKING_LEFT ?? 0) +
+              (counts.HEAD_LOOKING_RIGHT ?? 0) +
+              (counts.HEAD_LOOKING_UP ?? 0) +
+              (counts.HEAD_LOOKING_DOWN ?? 0),
+          )}
+        />
+        <Stat
+          label="Prolonged looking away"
+          value={String(counts.PROLONGED_LOOKING_AWAY ?? 0)}
+        />
+        <Stat
+          label="Repeated looking away"
+          value={String(counts.REPEATED_LOOKING_AWAY ?? 0)}
+        />
       </div>
 
       <h4 className="text-sm font-semibold mb-3">Event timeline</h4>

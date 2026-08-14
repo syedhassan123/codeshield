@@ -161,6 +161,7 @@ export function AdminAttemptDetailClient({
       <AdminProctoringReport
         securitySettings={assessment.security}
         recording={recording}
+        securityEvents={security?.events ?? []}
       />
 
       {result ? (

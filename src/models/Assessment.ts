@@ -25,6 +25,14 @@ const AssessmentSecuritySchema = new Schema(
       type: Boolean,
       default: DEFAULT_ASSESSMENT_SECURITY.monitorTabSwitching,
     },
+    requireFaceDetection: {
+      type: Boolean,
+      default: DEFAULT_ASSESSMENT_SECURITY.requireFaceDetection,
+    },
+    requireHeadMonitoring: {
+      type: Boolean,
+      default: DEFAULT_ASSESSMENT_SECURITY.requireHeadMonitoring,
+    },
   },
   { _id: false },
 );

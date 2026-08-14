@@ -42,6 +42,8 @@ const emptyForm = {
     requireFullscreen: true,
     blockCopyPaste: true,
     monitorTabSwitching: true,
+    requireFaceDetection: false,
+    requireHeadMonitoring: false,
   },
 };
 
@@ -325,6 +327,8 @@ export function AssessmentsManagerClient({
             {(
               [
                 ["requireCamera", "Require camera"],
+                ["requireFaceDetection", "Require face monitoring"],
+                ["requireHeadMonitoring", "Require head monitoring"],
                 ["requireFullscreen", "Require fullscreen"],
                 ["blockCopyPaste", "Block copy/paste"],
                 ["monitorTabSwitching", "Monitor tab switching"],
@@ -338,15 +342,25 @@ export function AssessmentsManagerClient({
                 <input
                   type="checkbox"
                   checked={form.security[key]}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const checked = e.target.checked;
                     setForm({
                       ...form,
                       security: {
                         ...form.security,
-                        [key]: e.target.checked,
+                        [key]: checked,
+                        ...(key === "requireFaceDetection" && checked
+                          ? { requireCamera: true }
+                          : {}),
+                        ...(key === "requireHeadMonitoring" && checked
+                          ? {
+                              requireCamera: true,
+                              requireFaceDetection: true,
+                            }
+                          : {}),
                       },
-                    })
-                  }
+                    });
+                  }}
                 />
               </label>
             ))}

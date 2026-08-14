@@ -16,6 +16,8 @@ import { ExamCodingPanel } from "@/components/exam/exam-coding-panel";
 import { ExamSecurityBanner } from "@/components/exam/exam-security-banner";
 import { useExamRecording } from "@/hooks/use-exam-recording";
 import { useExamSecurity } from "@/hooks/use-exam-security";
+import { useFaceDetection } from "@/hooks/use-face-detection";
+import { useHeadPoseMonitoring } from "@/hooks/use-head-pose-monitoring";
 import type {
   SerializedAnswer,
   SerializedAttempt,
@@ -128,6 +130,42 @@ export function ExamSessionClient({
       securityEnabled &&
       attempt.status === "in_progress",
     deviceId: cameraDeviceId,
+  });
+
+  const {
+    status: faceStatus,
+    faceCount,
+    isDetecting: faceDetecting,
+    warning: faceWarning,
+    error: faceError,
+  } = useFaceDetection({
+    attemptId: attempt.id,
+    enabled:
+      security.requireFaceDetection &&
+      securityEnabled &&
+      attempt.status === "in_progress",
+    videoRef,
+    cameraActive,
+  });
+
+  const faceReady =
+    faceStatus === "detected" && faceCount === 1 && cameraActive;
+
+  const {
+    status: headStatus,
+    orientation: headOrientation,
+    isMonitoring: headMonitoring,
+    warning: headWarning,
+    error: headError,
+  } = useHeadPoseMonitoring({
+    attemptId: attempt.id,
+    enabled:
+      security.requireHeadMonitoring &&
+      securityEnabled &&
+      attempt.status === "in_progress",
+    videoRef,
+    cameraActive,
+    faceReady,
   });
 
   const current = questions[index];
@@ -327,7 +365,7 @@ export function ExamSessionClient({
                 autoPlay
               />
             </div>
-            <div className="text-xs">
+            <div className="text-xs space-y-1">
               <p className="font-semibold">
                 Camera:{" "}
                 {cameraActive
@@ -336,6 +374,75 @@ export function ExamSessionClient({
                     ? "Unavailable"
                     : "Starting…"}
               </p>
+              {security.requireFaceDetection && (
+                <p className="font-semibold">
+                  Face:{" "}
+                  {faceStatus === "preparing"
+                    ? "Preparing…"
+                    : faceStatus === "unavailable"
+                      ? "Monitoring unavailable"
+                      : faceStatus === "paused"
+                        ? "Paused"
+                        : faceStatus === "not_detected"
+                          ? "Not detected"
+                          : faceStatus === "multiple"
+                            ? "Multiple faces detected"
+                            : faceDetecting
+                              ? "Detected"
+                              : "Starting…"}
+                  {faceDetecting && faceCount > 0 ? ` (${faceCount})` : ""}
+                </p>
+              )}
+              {security.requireFaceDetection && faceStatus === "preparing" && (
+                <p className="text-muted-foreground">
+                  Preparing camera monitoring…
+                </p>
+              )}
+              {security.requireFaceDetection &&
+                faceDetecting &&
+                faceStatus === "detected" && (
+                  <p className="text-success font-medium">
+                    Camera monitoring active
+                  </p>
+                )}
+              {security.requireHeadMonitoring && (
+                <p className="font-semibold">
+                  Monitoring:{" "}
+                  {headStatus === "preparing"
+                    ? "Preparing…"
+                    : headStatus === "unavailable"
+                      ? "Unavailable"
+                      : headStatus === "paused"
+                        ? "Paused"
+                        : headStatus === "looking_away"
+                          ? `Looking away${
+                              headOrientation !== "NORMAL"
+                                ? ` (${headOrientation.toLowerCase()})`
+                                : ""
+                            }`
+                          : headMonitoring
+                            ? "Active"
+                            : "Starting…"}
+                </p>
+              )}
+              {headWarning && (
+                <p className="text-amber-800 font-medium max-w-md">{headWarning}</p>
+              )}
+              {headError && (
+                <p className="text-muted-foreground font-medium max-w-md">
+                  {headError}
+                </p>
+              )}
+              {faceWarning && (
+                <p className="text-amber-800 font-medium max-w-md">
+                  {faceWarning}
+                </p>
+              )}
+              {faceError && (
+                <p className="text-muted-foreground font-medium max-w-md">
+                  {faceError}
+                </p>
+              )}
               {cameraWarning && (
                 <p className="text-danger font-medium mt-1 max-w-md">
                   {cameraWarning}{" "}

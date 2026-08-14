@@ -25,6 +25,8 @@ export const assessmentInputSchema = z.object({
       requireFullscreen: z.boolean(),
       blockCopyPaste: z.boolean(),
       monitorTabSwitching: z.boolean(),
+      requireFaceDetection: z.boolean().optional().default(false),
+      requireHeadMonitoring: z.boolean().optional().default(false),
     })
     .optional(),
 });

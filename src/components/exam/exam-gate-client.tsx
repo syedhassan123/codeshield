@@ -139,7 +139,13 @@ export function ExamGateClient({
                   security.monitorTabSwitching
                     ? "Tab switching is monitored and recorded"
                     : "Tab switching is not monitored",
-                ]
+                  security.requireFaceDetection
+                    ? "Your face must remain visible to the camera during the exam"
+                    : "",
+                  security.requireHeadMonitoring
+                    ? "Sustained looking away from the screen may be recorded as an observation"
+                    : "",
+                ].filter((line) => line.length > 0)
             ).map((line) => (
               <li key={line}>• {line.replace(/^•\s*/, "")}</li>
             ))}
@@ -150,7 +156,13 @@ export function ExamGateClient({
           {[
             {
               icon: Camera,
-              label: security.requireCamera ? "Camera required" : "Camera optional",
+              label: security.requireCamera
+                ? security.requireHeadMonitoring
+                  ? "Camera + head monitoring"
+                  : security.requireFaceDetection
+                    ? "Camera + face monitoring"
+                    : "Camera required"
+                : "Camera optional",
             },
             { icon: Mic, label: "Microphone" },
             { icon: Wifi, label: "Network" },

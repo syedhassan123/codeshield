@@ -7,6 +7,10 @@ import { connectDB } from "@/lib/db";
 import { createServerOp, debugLog, isVerboseDebugEnabled, maskId } from "@/lib/debug";
 import {
   buildSecuritySummary,
+  FACE_EVENT_DEDUP_MS,
+  HEAD_EVENT_DEDUP_MS,
+  isFaceObservationEvent,
+  isHeadObservationEvent,
   isLeaveSecurityEvent,
   SECURITY_LEAVE_DEDUP_MS,
   severityForEventType,
@@ -104,6 +108,46 @@ export async function recordExamSecurityEventAction(raw: unknown) {
       }
 
       if (eventType === "FULLSCREEN_EXIT" && recentFullscreen) {
+        securityLog(eventType, attemptId, "DEDUPED");
+        debugLog("EXAM", "SECURITY_EVENT_DEDUPED", {
+          eventType,
+          attemptId: maskId(attemptId),
+        });
+        return { success: true as const, deduped: true as const };
+      }
+    }
+
+    if (isFaceObservationEvent(eventType)) {
+      const since = new Date(Date.now() - FACE_EVENT_DEDUP_MS);
+      const recentSame = await SecurityEvent.findOne({
+        attemptId: live._id,
+        eventType,
+        timestamp: { $gte: since },
+      })
+        .sort({ timestamp: -1 })
+        .lean();
+
+      if (recentSame) {
+        securityLog(eventType, attemptId, "DEDUPED");
+        debugLog("EXAM", "SECURITY_EVENT_DEDUPED", {
+          eventType,
+          attemptId: maskId(attemptId),
+        });
+        return { success: true as const, deduped: true as const };
+      }
+    }
+
+    if (isHeadObservationEvent(eventType)) {
+      const since = new Date(Date.now() - HEAD_EVENT_DEDUP_MS);
+      const recentSame = await SecurityEvent.findOne({
+        attemptId: live._id,
+        eventType,
+        timestamp: { $gte: since },
+      })
+        .sort({ timestamp: -1 })
+        .lean();
+
+      if (recentSame) {
         securityLog(eventType, attemptId, "DEDUPED");
         debugLog("EXAM", "SECURITY_EVENT_DEDUPED", {
           eventType,
