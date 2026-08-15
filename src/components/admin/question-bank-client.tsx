@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   createQuestionAction,
+  createQuestionForAssessmentAction,
   deleteQuestionAction,
   updateQuestionAction,
 } from "@/lib/actions/questions";
@@ -84,9 +87,17 @@ const emptyForm: QuestionFormState = {
 
 export function QuestionBankClient({
   initialQuestions,
+  assessmentContext,
 }: {
   initialQuestions: SerializedQuestion[];
+  assessmentContext?: {
+    assessmentId: string;
+    assessmentTitle: string;
+    requiredType: QuestionType;
+  };
 }) {
+  const router = useRouter();
+  const lockedType = assessmentContext?.requiredType;
   const [questions, setQuestions] = useState(initialQuestions);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<"all" | QuestionCategory>("all");
@@ -98,6 +109,18 @@ export function QuestionBankClient({
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (!assessmentContext) return;
+    setMode("create");
+    setEditingId(null);
+    setForm({
+      ...emptyForm,
+      type: assessmentContext.requiredType,
+    });
+    setError("");
+    setOpen(true);
+  }, [assessmentContext]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -125,7 +148,10 @@ export function QuestionBankClient({
   const openCreate = () => {
     setMode("create");
     setEditingId(null);
-    setForm(emptyForm);
+    setForm({
+      ...emptyForm,
+      type: lockedType ?? emptyForm.type,
+    });
     setError("");
     setOpen(true);
   };
@@ -179,7 +205,7 @@ export function QuestionBankClient({
     startTransition(async () => {
       const payload = {
         prompt: form.prompt,
-        type: form.type,
+        type: lockedType ?? form.type,
         category: form.category,
         difficulty: form.difficulty,
         points: form.points,
@@ -207,7 +233,12 @@ export function QuestionBankClient({
       const result =
         mode === "edit" && editingId
           ? await updateQuestionAction(editingId, payload)
-          : await createQuestionAction(payload);
+          : assessmentContext
+            ? await createQuestionForAssessmentAction(
+                assessmentContext.assessmentId,
+                payload,
+              )
+            : await createQuestionAction(payload);
 
       if ("error" in result && result.error) {
         setError(result.error);
@@ -223,8 +254,10 @@ export function QuestionBankClient({
           }
           return [result.question!, ...prev];
         });
-        console.log(result)
         setOpen(false);
+        if (assessmentContext && "assessmentId" in result) {
+          router.push(`/admin/assessments/${assessmentContext.assessmentId}`);
+        }
       }
     });
   };
@@ -245,13 +278,37 @@ export function QuestionBankClient({
 
   return (
     <div>
+      {assessmentContext && (
+        <div className="mb-4 rounded-xl border border-primary/30 bg-primary-soft px-4 py-3 text-sm">
+          <p className="font-semibold">
+            Creating a {displayType(assessmentContext.requiredType)} question for{" "}
+            {assessmentContext.assessmentTitle}
+          </p>
+          <p className="text-muted-foreground text-xs mt-1">
+            Question type is locked to match the assessment type.
+          </p>
+          <Link
+            href={`/admin/assessments/${assessmentContext.assessmentId}`}
+            className="text-xs font-semibold text-primary underline mt-2 inline-block"
+          >
+            Back to assessment
+          </Link>
+        </div>
+      )}
+
       <PageHeader
         title="Question Bank"
-        description="Organize and reuse questions across assessments."
+        description={
+          assessmentContext
+            ? `Adding ${displayType(assessmentContext.requiredType)} questions to an assessment.`
+            : "Organize and reuse questions across assessments."
+        }
         actions={
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="w-4 h-4" /> Add Question
-          </Button>
+          !assessmentContext ? (
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="w-4 h-4" /> Add Question
+            </Button>
+          ) : null
         }
       />
 
@@ -381,7 +438,15 @@ export function QuestionBankClient({
               ? "Edit Question"
               : "Question Details"
         }
-        description="MCQ, Subjective, or Coding question for the bank."
+        description={
+          mode === "create"
+            ? lockedType
+              ? `Create a ${displayType(lockedType)} question for this assessment.`
+              : "MCQ, Subjective, or Coding question for the bank."
+            : mode === "edit"
+              ? "Edit Question"
+              : "Question Details"
+        }
         className="max-w-3xl"
       >
         <div className="space-y-4">
@@ -398,20 +463,26 @@ export function QuestionBankClient({
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <Label>Type</Label>
-              <select
-                disabled={readOnly}
-                value={form.type}
-                onChange={(e) =>
-                  setForm({ ...form, type: e.target.value as typeof form.type })
-                }
-                className="w-full h-11 rounded-xl border border-border bg-card px-3 text-sm"
-              >
-                {QUESTION_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {displayType(t)}
-                  </option>
-                ))}
-              </select>
+              {lockedType ? (
+                <div className="h-11 flex items-center rounded-xl border border-border bg-muted/40 px-3 text-sm font-semibold">
+                  {displayType(lockedType)}
+                </div>
+              ) : (
+                <select
+                  disabled={readOnly}
+                  value={form.type}
+                  onChange={(e) =>
+                    setForm({ ...form, type: e.target.value as typeof form.type })
+                  }
+                  className="w-full h-11 rounded-xl border border-border bg-card px-3 text-sm"
+                >
+                  {QUESTION_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {displayType(t)}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
             <div>
               <Label>Category</Label>

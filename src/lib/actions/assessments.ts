@@ -19,9 +19,14 @@ import { nextSequence } from "@/models/Counter";
 import { Assessment } from "@/models/Assessment";
 import { Question } from "@/models/Question";
 import {
+  QUESTION_TYPE_MISMATCH_ERROR,
+  questionMatchesAssessmentType,
+} from "@/lib/assessment-question-type";
+import {
   DEFAULT_ASSESSMENT_SECURITY,
   normalizeAssessmentSecurity,
 } from "@/types/assessment-security";
+import type { AssessmentType, QuestionType } from "@/types/assessment";
 
 function toError(error: unknown) {
   if (error instanceof ActionError) return { error: error.message };
@@ -46,6 +51,33 @@ async function assertQuestionsExist(ids: string[]) {
     throw new ActionError("One or more questions do not exist.");
   }
   return objectIds;
+}
+
+async function assertQuestionsMatchAssessmentType(
+  assessmentType: AssessmentType,
+  ids: string[],
+) {
+  if (!ids.length || assessmentType === "mixed") return;
+
+  const objectIds = ids.map((id) => new mongoose.Types.ObjectId(id));
+  const questions = await Question.find({ _id: { $in: objectIds } }).select(
+    "type",
+  );
+
+  if (questions.length !== ids.length) {
+    throw new ActionError("One or more questions do not exist.");
+  }
+
+  for (const question of questions) {
+    if (
+      !questionMatchesAssessmentType(
+        assessmentType,
+        question.type as QuestionType,
+      )
+    ) {
+      throw new ActionError(QUESTION_TYPE_MISMATCH_ERROR);
+    }
+  }
 }
 
 export async function listAssessmentsAction(typeFilter?: string) {
@@ -141,6 +173,9 @@ export async function createAssessmentAction(raw: unknown) {
     const questionIds = await op.runMongo("validating question refs", () =>
       assertQuestionsExist(data.questionIds),
     );
+    await op.runMongo("validating question types", () =>
+      assertQuestionsMatchAssessmentType(data.type, data.questionIds),
+    );
     const totalMarks =
       data.totalMarks != null && data.totalMarks > 0
         ? data.totalMarks
@@ -208,6 +243,9 @@ export async function updateAssessmentAction(id: string, raw: unknown) {
     const questionIds = await op.runMongo("validating question refs", () =>
       assertQuestionsExist(data.questionIds),
     );
+    await op.runMongo("validating question types", () =>
+      assertQuestionsMatchAssessmentType(data.type, data.questionIds),
+    );
     const totalMarks =
       data.totalMarks != null && data.totalMarks > 0
         ? data.totalMarks
@@ -270,6 +308,9 @@ export async function setAssessmentQuestionsAction(id: string, raw: unknown) {
 
     const questionIds = await op.runMongo("validating question refs", () =>
       assertQuestionsExist(data.questionIds),
+    );
+    await op.runMongo("validating question types", () =>
+      assertQuestionsMatchAssessmentType(doc.type, data.questionIds),
     );
     doc.questionIds = questionIds;
     doc.totalMarks = await computeMarks(questionIds);

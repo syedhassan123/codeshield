@@ -9,6 +9,10 @@ import {
   updateAssessmentAction,
 } from "@/lib/actions/assessments";
 import {
+  assessmentRestrictsQuestionType,
+  requiredQuestionTypeForAssessment,
+} from "@/lib/assessment-question-type";
+import {
   displayDifficulty,
   displayStatus,
   displayType,
@@ -37,6 +41,8 @@ export function AssessmentDetailClient({
   bank: SerializedQuestion[];
 }) {
   const [assessment, setAssessment] = useState(initialAssessment);
+  console.log("assessment from client side: ",assessment);
+  
   const [questions, setQuestions] = useState(initialQuestions);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selected, setSelected] = useState<string[]>(
@@ -63,9 +69,23 @@ export function AssessmentDetailClient({
     },
   });
 
+  const requiredQuestionType = requiredQuestionTypeForAssessment(assessment.type);
+  const typeFilterActive = assessmentRestrictsQuestionType(assessment.type);
+
+  const compatibleBank = useMemo(() => {
+    if (!typeFilterActive) return bank;
+    return bank.filter((q) => q.type === assessment.type);
+  }, [assessment.type, bank, typeFilterActive]);
+
   const available = useMemo(
-    () => bank.filter((q) => !questions.some((aq) => aq.id === q.id)),
-    [bank, questions],
+    () =>
+      compatibleBank.filter((q) => !questions.some((aq) => aq.id === q.id)),
+    [compatibleBank, questions],
+  );
+
+  const pickerQuestions = useMemo(
+    () => [...questions, ...available],
+    [available, questions],
   );
 
   const saveMeta = () => {
@@ -98,7 +118,7 @@ export function AssessmentDetailClient({
       }
       if ("assessment" in result && result.assessment) {
         setAssessment(result.assessment);
-        const next = bank.filter((q) => ids.includes(q.id));
+        const next = compatibleBank.filter((q) => ids.includes(q.id));
         // keep order of ids
         setQuestions(
           ids
@@ -325,17 +345,37 @@ export function AssessmentDetailClient({
       </div>
 
       <div className="card-soft p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display font-bold">Attached questions</h3>
-          <Button
-            size="sm"
-            onClick={() => {
-              setSelected(questions.map((q) => q.id));
-              setPickerOpen(true);
-            }}
-          >
-            <Plus className="w-4 h-4" /> Add / manage
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="font-display font-bold">Attached questions</h3>
+            {typeFilterActive && requiredQuestionType && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Only {displayType(requiredQuestionType)} questions can be added
+                to this assessment.
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {typeFilterActive && requiredQuestionType && (
+              <Button size="sm" variant="outline" asChild>
+                <Link
+                  href={`/admin/questions?forAssessment=${assessment.id}`}
+                >
+                  <Plus className="w-4 h-4" /> Create{" "}
+                  {displayType(requiredQuestionType)} question
+                </Link>
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={() => {
+                setSelected(questions.map((q) => q.id));
+                setPickerOpen(true);
+              }}
+            >
+              <Plus className="w-4 h-4" /> Add / manage
+            </Button>
+          </div>
         </div>
         <div className="space-y-2">
           {questions.map((q) => (
@@ -371,11 +411,15 @@ export function AssessmentDetailClient({
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
         title="Manage questions"
-        description="Select questions from the bank to attach."
+        description={
+          typeFilterActive && requiredQuestionType
+            ? `Showing ${displayType(requiredQuestionType)} questions only.`
+            : "Select questions from the bank to attach."
+        }
         className="max-w-3xl"
       >
         <div className="space-y-2 max-h-[50vh] overflow-y-auto mb-4">
-          {[...questions, ...available].map((q) => {
+          {pickerQuestions.map((q) => {
             const on = selected.includes(q.id);
             return (
               <button
@@ -395,9 +439,19 @@ export function AssessmentDetailClient({
               >
                 <div className="text-xs font-semibold text-primary">{q.code}</div>
                 <div className="text-sm font-medium">{q.prompt}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {displayType(q.type)} · {q.points} pts
+                </div>
               </button>
             );
           })}
+          {!pickerQuestions.length && (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              {typeFilterActive && requiredQuestionType
+                ? `No ${displayType(requiredQuestionType)} questions available in the bank.`
+                : "No questions available."}
+            </p>
+          )}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => setPickerOpen(false)}>

@@ -18,6 +18,7 @@ import { useExamRecording } from "@/hooks/use-exam-recording";
 import { useExamSecurity } from "@/hooks/use-exam-security";
 import { useFaceDetection } from "@/hooks/use-face-detection";
 import { useHeadPoseMonitoring } from "@/hooks/use-head-pose-monitoring";
+import { headDebugSecurityConfig } from "@/lib/face/head-pose-debug";
 import type {
   SerializedAnswer,
   SerializedAttempt,
@@ -148,9 +149,6 @@ export function ExamSessionClient({
     cameraActive,
   });
 
-  const faceReady =
-    faceStatus === "detected" && faceCount === 1 && cameraActive;
-
   const {
     status: headStatus,
     orientation: headOrientation,
@@ -165,8 +163,21 @@ export function ExamSessionClient({
       attempt.status === "in_progress",
     videoRef,
     cameraActive,
-    faceReady,
+    faceCount,
   });
+
+  useEffect(() => {
+    if (!security.requireHeadMonitoring) return;
+    headDebugSecurityConfig({
+      requireCamera: security.requireCamera,
+      requireFaceDetection: security.requireFaceDetection,
+      requireHeadMonitoring: security.requireHeadMonitoring,
+    });
+  }, [
+    security.requireCamera,
+    security.requireFaceDetection,
+    security.requireHeadMonitoring,
+  ]);
 
   const current = questions[index];
   const answeredCount = useMemo(

@@ -11,7 +11,10 @@ import {
   severityForEventType,
 } from "../src/lib/exam/security";
 import {
+  buildColumnMajorPitchMatrix,
+  buildColumnMajorYawMatrix,
   classifyHeadOrientation,
+  headMonitoringAnglesFromFacialMatrix,
   orientationToEventType,
 } from "../src/lib/face/head-pose-orientation";
 import {
@@ -32,6 +35,10 @@ import { User } from "../src/models/User";
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(`FAIL: ${msg}`);
   console.log(`OK: ${msg}`);
+}
+
+function assertNear(actual: number, expected: number, msg: string, epsilon = 0.5) {
+  assert(Math.abs(actual - expected) <= epsilon, msg);
 }
 
 async function main() {
@@ -88,6 +95,34 @@ async function main() {
     classifyHeadOrientation({ yaw: 5, pitch: 30, roll: 0 }) === "DOWN",
     "pitch down classified",
   );
+
+  const rightTurn = headMonitoringAnglesFromFacialMatrix(
+    buildColumnMajorYawMatrix(30),
+  );
+  assertNear(rightTurn!.yaw, 30, "matrix yaw right ~30 deg");
+  assert(
+    classifyHeadOrientation(rightTurn!) === "RIGHT",
+    "matrix yaw right classified RIGHT",
+  );
+
+  const leftTurn = headMonitoringAnglesFromFacialMatrix(
+    buildColumnMajorYawMatrix(-30),
+  );
+  assertNear(leftTurn!.yaw, -30, "matrix yaw left ~-30 deg");
+  assert(
+    classifyHeadOrientation(leftTurn!) === "LEFT",
+    "matrix yaw left classified LEFT",
+  );
+
+  const nodDown = headMonitoringAnglesFromFacialMatrix(
+    buildColumnMajorPitchMatrix(30),
+  );
+  assertNear(nodDown!.pitch, 30, "matrix nod down ~30 deg");
+  assert(
+    classifyHeadOrientation(nodDown!) === "DOWN",
+    "matrix nod down classified DOWN",
+  );
+
   assert(
     orientationToEventType("LEFT") === "HEAD_LOOKING_LEFT",
     "LEFT maps to event type",

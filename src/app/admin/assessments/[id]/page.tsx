@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { connectDB } from "@/lib/db";
 import { createServerOp, maskId } from "@/lib/debug";
+import { assessmentRestrictsQuestionType } from "@/lib/assessment-question-type";
 import { requirePageRole } from "@/lib/safe-auth";
 import {
   serializeAssessment,
@@ -44,8 +45,11 @@ export default async function AdminAssessmentDetailPage({
     .map((q) => serializeQuestion(q!));
 
   const marks = ordered.reduce((sum, q) => sum + q.points, 0);
+  const bankQuery = assessmentRestrictsQuestionType(doc.type)
+    ? { type: doc.type }
+    : {};
   const bankDocs = await op.runMongo("fetch question bank", () =>
-    Question.find().sort({ createdAt: -1 }),
+    Question.find(bankQuery).sort({ createdAt: -1 }),
   );
 
   const payload = op.respond({

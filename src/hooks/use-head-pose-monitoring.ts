@@ -4,6 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { recordExamSecurityEventAction } from "@/lib/actions/exam-security";
 import { FACE_DETECTION_INTERVAL_MS } from "@/lib/face/constants";
 import {
+  headDebugEventPersisted,
+  headDebugMessage,
+  headDebugSnapshot,
+  headDebugTransition,
+  headServerLog,
+  resetHeadDebugOrientation,
+} from "@/lib/face/head-pose-debug";
+import {
   getFaceLandmarker,
   releaseFaceLandmarker,
   sampleHeadPoseFromVideo,
@@ -38,8 +46,8 @@ type Options = {
   enabled: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   cameraActive: boolean;
-  /** True when Phase 8A reports exactly one visible face. */
-  faceReady: boolean;
+  /** Face count reported by Phase 8A (exactly one required to run). */
+  faceCount: number;
 };
 
 type LookingDirection = Exclude<HeadOrientation, "NORMAL">;
@@ -57,7 +65,7 @@ export function useHeadPoseMonitoring({
   enabled,
   videoRef,
   cameraActive,
-  faceReady,
+  faceCount,
 }: Options) {
   const [status, setStatus] = useState<HeadMonitoringStatus>("inactive");
   const [orientation, setOrientation] = useState<HeadOrientation>("NORMAL");
@@ -67,7 +75,7 @@ export function useHeadPoseMonitoring({
 
   const enabledRef = useRef(enabled);
   const cameraActiveRef = useRef(cameraActive);
-  const faceReadyRef = useRef(faceReady);
+  const faceCountRef = useRef(faceCount);
   const statusRef = useRef<HeadMonitoringStatus>("inactive");
   const orientationRef = useRef<HeadOrientation>("NORMAL");
   const episodeStartRef = useRef<number | null>(null);
@@ -82,10 +90,11 @@ export function useHeadPoseMonitoring({
     null,
   );
   const startedRef = useRef(false);
+  const tickRef = useRef<() => Promise<void>>(async () => {});
 
   enabledRef.current = enabled;
   cameraActiveRef.current = cameraActive;
-  faceReadyRef.current = faceReady;
+  faceCountRef.current = faceCount;
 
   const updateStatus = useCallback((next: HeadMonitoringStatus) => {
     if (statusRef.current === next) return;
@@ -94,9 +103,11 @@ export function useHeadPoseMonitoring({
   }, []);
 
   const updateOrientation = useCallback((next: HeadOrientation) => {
-    if (orientationRef.current === next) return;
+    const prev = orientationRef.current;
+    if (prev === next) return;
     orientationRef.current = next;
     setOrientation(next);
+    headDebugTransition(prev, next);
   }, []);
 
   const persistEvent = useCallback(
@@ -119,11 +130,26 @@ export function useHeadPoseMonitoring({
         return;
       }
       lastPersistRef.current = now;
-      await recordExamSecurityEventAction({
+
+      const result = await recordExamSecurityEventAction({
         attemptId,
         eventType,
         metadata,
       });
+
+      if (!result.success) {
+        headServerLog(`Failed to persist ${eventType}`, {
+          error: "error" in result ? result.error : "unknown",
+        });
+        return;
+      }
+
+      if ("deduped" in result && result.deduped) {
+        headServerLog(`${eventType} deduped on server`);
+        return;
+      }
+
+      headDebugEventPersisted(eventType);
     },
     [attemptId],
   );
@@ -142,6 +168,21 @@ export function useHeadPoseMonitoring({
       updateStatus("active");
     },
     [updateStatus],
+  );
+
+  const pauseMonitoring = useCallback(
+    (reason: string) => {
+      if (episodeStartRef.current != null) {
+        const durationMs = Date.now() - episodeStartRef.current;
+        headLog("Episode ended", { durationMs, reason });
+        resetEpisode();
+      }
+      updateStatus("paused");
+      if (orientationRef.current !== "NORMAL") {
+        updateOrientation("NORMAL");
+      }
+    },
+    [resetEpisode, updateOrientation, updateStatus],
   );
 
   const pruneQualifyingEpisodes = useCallback(() => {
@@ -174,15 +215,18 @@ export function useHeadPoseMonitoring({
   const tick = useCallback(async () => {
     if (!enabledRef.current || !landmarkerRef.current) return;
 
-    if (!cameraActiveRef.current || !faceReadyRef.current) {
-      if (episodeStartRef.current != null) {
-        const durationMs = Date.now() - episodeStartRef.current;
-        headLog("Episode ended", { durationMs, reason: "face_or_camera_pause" });
-        resetEpisode();
+    const simMode = getHeadPoseSimulationMode();
+    const usingSimulation = Boolean(simMode);
+
+    if (!usingSimulation) {
+      if (!cameraActiveRef.current) {
+        pauseMonitoring("camera_inactive");
+        return;
       }
-      updateStatus("paused");
-      updateOrientation("NORMAL");
-      return;
+      if (faceCountRef.current !== 1) {
+        pauseMonitoring("phase8a_face_count");
+        return;
+      }
     }
 
     const video = videoRef.current;
@@ -190,17 +234,13 @@ export function useHeadPoseMonitoring({
 
     let sampleOrientation: HeadOrientation = "NORMAL";
     let angles: { yaw: number; pitch: number; roll: number } | null = null;
-    let sampleFaceCount = 1;
+    let sampleFaceCount = faceCountRef.current;
+    let matrixPresent = usingSimulation;
 
-    const simMode = getHeadPoseSimulationMode();
     if (simMode) {
       const sim = simulationToOrientation(simMode);
       if (sim === "NO_FACE" || sim === "MULTIPLE_FACES") {
-        if (episodeStartRef.current != null) {
-          resetEpisode();
-        }
-        updateStatus("paused");
-        updateOrientation("NORMAL");
+        pauseMonitoring(sim === "NO_FACE" ? "sim_no_face" : "sim_multiple_faces");
         return;
       }
       sampleOrientation = sim;
@@ -209,6 +249,7 @@ export function useHeadPoseMonitoring({
         pitch: sim === "DOWN" ? 35 : sim === "UP" ? -35 : 0,
         roll: 0,
       };
+      sampleFaceCount = 1;
     } else {
       const sample = sampleHeadPoseFromVideo(
         landmarkerRef.current,
@@ -216,29 +257,44 @@ export function useHeadPoseMonitoring({
         performance.now(),
       );
       if (!sample) return;
+
       sampleFaceCount = sample.faceCount;
+      matrixPresent = sample.angles != null;
+
       if (sampleFaceCount !== 1) {
-        if (episodeStartRef.current != null) {
-          resetEpisode();
-        }
-        updateStatus("paused");
-        updateOrientation("NORMAL");
+        pauseMonitoring("landmarker_face_count");
         return;
       }
+
       sampleOrientation = sample.orientation;
       angles = sample.angles;
     }
 
-    if (angles) {
-      headLog(`Orientation=${sampleOrientation}`, {
-        yaw: Math.round(angles.yaw),
-        pitch: Math.round(angles.pitch),
-        roll: Math.round(angles.roll),
-      });
-    }
+    const now = Date.now();
+    const awayDurationMs =
+      episodeStartRef.current != null &&
+      sampleOrientation !== "NORMAL" &&
+      episodeDirectionRef.current === sampleOrientation
+        ? now - episodeStartRef.current
+        : 0;
+
+    headDebugSnapshot({
+      enabled: enabledRef.current,
+      cameraActive: cameraActiveRef.current,
+      phase8aFaceCount: faceCountRef.current,
+      landmarkerFaceCount: sampleFaceCount,
+      matrixPresent,
+      yaw: angles ? Math.round(angles.yaw) : "n/a",
+      pitch: angles ? Math.round(angles.pitch) : "n/a",
+      roll: angles ? Math.round(angles.roll) : "n/a",
+      orientation: sampleOrientation,
+      awayDurationMs,
+      warningTriggered: headEventLoggedRef.current,
+      prolongedTriggered: prolongedLoggedRef.current,
+      simulation: usingSimulation ? simMode : "off",
+    });
 
     updateOrientation(sampleOrientation);
-    const now = Date.now();
 
     if (sampleOrientation === "NORMAL") {
       if (episodeStartRef.current != null) {
@@ -274,34 +330,43 @@ export function useHeadPoseMonitoring({
       headEventLoggedRef.current = true;
       const eventType = orientationToEventType(direction);
       setWarning("⚠️ Please look at the screen to continue your exam.");
+      headDebugMessage(`${direction} duration reached 20s`);
       headLog("Looking-away threshold reached", { durationMs, direction });
       await persistEvent(eventType, {
         direction,
         durationMs,
         faceCount: sampleFaceCount,
+        phase8aFaceCount: faceCountRef.current,
       });
       qualifyingEpisodesRef.current.push(now);
       await maybeEmitRepeated();
-    } else if (
+    }
+
+    if (
       durationMs >= HEAD_PROLONGED_THRESHOLD_MS &&
       !prolongedLoggedRef.current
     ) {
       prolongedLoggedRef.current = true;
+      headDebugMessage(`${direction} duration reached 30s`);
       headLog("Prolonged looking-away threshold reached", { durationMs, direction });
       await persistEvent("PROLONGED_LOOKING_AWAY", {
         direction,
         durationMs,
         faceCount: sampleFaceCount,
+        phase8aFaceCount: faceCountRef.current,
       });
     }
   }, [
     maybeEmitRepeated,
+    pauseMonitoring,
     persistEvent,
     resetEpisode,
     updateOrientation,
     updateStatus,
     videoRef,
   ]);
+
+  tickRef.current = tick;
 
   const stop = useCallback(() => {
     if (intervalRef.current) {
@@ -319,6 +384,7 @@ export function useHeadPoseMonitoring({
     prolongedLoggedRef.current = false;
     qualifyingEpisodesRef.current = [];
     repeatedBurstRef.current = false;
+    resetHeadDebugOrientation();
     if (startedRef.current) {
       headLog("Monitoring stopped", { attemptId });
       startedRef.current = false;
@@ -347,11 +413,13 @@ export function useHeadPoseMonitoring({
         landmarkerRef.current = landmarker;
         startedRef.current = true;
         updateStatus(
-          cameraActiveRef.current && faceReadyRef.current ? "active" : "paused",
+          cameraActiveRef.current && faceCountRef.current === 1
+            ? "active"
+            : "paused",
         );
 
         intervalRef.current = setInterval(() => {
-          void tick();
+          void tickRef.current();
         }, FACE_DETECTION_INTERVAL_MS);
       } catch (err) {
         if (cancelled) return;
@@ -376,7 +444,7 @@ export function useHeadPoseMonitoring({
       cancelled = true;
       stop();
     };
-  }, [attemptId, enabled, persistEvent, stop, tick, updateStatus]);
+  }, [attemptId, enabled, persistEvent, stop, updateStatus]);
 
   return {
     status,

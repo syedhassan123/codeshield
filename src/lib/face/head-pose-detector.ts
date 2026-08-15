@@ -4,8 +4,8 @@ import type { FaceLandmarker as MpFaceLandmarker } from "@mediapipe/tasks-vision
 import { FACE_DETECTOR_WASM_CDN } from "@/lib/face/constants";
 import { FACE_LANDMARKER_MODEL_URL } from "@/lib/face/head-pose-constants";
 import {
-  anglesFromFacialMatrix,
   classifyHeadOrientation,
+  headMonitoringAnglesFromFacialMatrix,
   type HeadOrientation,
   type HeadPoseAngles,
 } from "@/lib/face/head-pose-orientation";
@@ -58,7 +58,13 @@ export function sampleHeadPoseFromVideo(
   }
 
   const matrix = result.facialTransformationMatrixes?.[0];
-  const angles = matrix?.data ? anglesFromFacialMatrix(matrix.data) : null;
+  const matrixData = matrix?.data;
+  const angles =
+    matrixData && matrixData.length >= 16
+      ? headMonitoringAnglesFromFacialMatrix(
+          Array.isArray(matrixData) ? matrixData : Array.from(matrixData),
+        )
+      : null;
   const orientation = angles ? classifyHeadOrientation(angles) : "NORMAL";
 
   return { orientation, angles, faceCount };

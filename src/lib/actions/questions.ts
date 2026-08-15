@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { connectDB } from "@/lib/db";
 import { ActionError, requireAdmin } from "@/lib/auth-guards";
+import {
+  QUESTION_TYPE_MISMATCH_ERROR,
+  questionMatchesAssessmentType,
+  requiredQuestionTypeForAssessment,
+} from "@/lib/assessment-question-type";
 import { createServerOp } from "@/lib/debug";
 import { serializeQuestion } from "@/lib/serializers";
 import {
@@ -13,6 +18,7 @@ import {
 import { nextSequence } from "@/models/Counter";
 import { Assessment } from "@/models/Assessment";
 import { Question } from "@/models/Question";
+import type { QuestionType } from "@/types/assessment";
 
 function toError(error: unknown) {
   if (error instanceof ActionError) return { error: error.message };
@@ -21,6 +27,38 @@ function toError(error: unknown) {
   }
   if (error instanceof Error) return { error: error.message };
   return { error: "Something went wrong." };
+}
+
+async function assertQuestionTypeAllowedForAssessment(
+  assessmentId: string,
+  questionType: QuestionType,
+) {
+  const assessment = await Assessment.findById(assessmentId);
+  if (!assessment) throw new ActionError("Assessment not found.");
+
+  const required = requiredQuestionTypeForAssessment(assessment.type);
+  if (required && questionType !== required) {
+    throw new ActionError(QUESTION_TYPE_MISMATCH_ERROR);
+  }
+
+  return assessment;
+}
+
+function buildQuestionCreatePayload(data: ReturnType<typeof questionInputSchema.parse>) {
+  return {
+    ...data,
+    options: data.type === "mcq" ? data.options : [],
+    correctOptionKey: data.type === "mcq" ? data.correctOptionKey : "",
+    codingLanguages: data.type === "coding" ? data.codingLanguages : [],
+    starterCode: data.type === "coding" ? data.starterCode : {},
+    testCases: data.type === "coding" ? data.testCases : [],
+    constraints: data.type === "coding" ? data.constraints : "",
+    inputFormat: data.type === "coding" ? data.inputFormat : "",
+    outputFormat: data.type === "coding" ? data.outputFormat : "",
+    examples: data.type === "coding" ? data.examples : [],
+    timeLimitMs: data.type === "coding" ? data.timeLimitMs : 3000,
+    memoryLimitMb: data.type === "coding" ? data.memoryLimitMb : 256,
+  };
 }
 
 export async function listQuestionsAction(rawFilters?: unknown) {
@@ -103,23 +141,13 @@ export async function createQuestionAction(raw: unknown) {
       nextSequence("question", 1001),
     );
     const code = `Q-${seq}`;
+    const payload = buildQuestionCreatePayload(data);
 
     const doc = await op.runMongo("creating question", () =>
       Question.create({
-        ...data,
+        ...payload,
         code,
         createdBy: session.user.id,
-        options: data.type === "mcq" ? data.options : [],
-        correctOptionKey: data.type === "mcq" ? data.correctOptionKey : "",
-        codingLanguages: data.type === "coding" ? data.codingLanguages : [],
-        starterCode: data.type === "coding" ? data.starterCode : {},
-        testCases: data.type === "coding" ? data.testCases : [],
-        constraints: data.type === "coding" ? data.constraints : "",
-        inputFormat: data.type === "coding" ? data.inputFormat : "",
-        outputFormat: data.type === "coding" ? data.outputFormat : "",
-        examples: data.type === "coding" ? data.examples : [],
-        timeLimitMs: data.type === "coding" ? data.timeLimitMs : 3000,
-        memoryLimitMb: data.type === "coding" ? data.memoryLimitMb : 256,
       }),
     );
 
@@ -129,6 +157,64 @@ export async function createQuestionAction(raw: unknown) {
     return { question: serializeQuestion(doc) };
   } catch (error) {
     op.fail(error);
+    return toError(error);
+  }
+}
+
+/** Create a question and attach it to an assessment (typed assessments only). */
+export async function createQuestionForAssessmentAction(
+  assessmentId: string,
+  raw: unknown,
+) {
+  const op = createServerOp({
+    domain: "QUESTION",
+    operation: "CREATE_FOR_ASSESSMENT",
+    source: "SERVER-ACTION",
+    resourceId: assessmentId,
+  });
+
+  try {
+    const session = await requireAdmin();
+    op.auth(session.user);
+    const data = questionInputSchema.parse(raw);
+    await connectDB();
+
+    const assessment = await op.runMongo(
+      "validating assessment question type",
+      () => assertQuestionTypeAllowedForAssessment(assessmentId, data.type),
+    );
+
+    const required = requiredQuestionTypeForAssessment(assessment.type);
+    const questionType = required ?? data.type;
+
+    const seq = await op.runMongo("next question sequence", () =>
+      nextSequence("question", 1001),
+    );
+    const code = `Q-${seq}`;
+    const payload = buildQuestionCreatePayload({ ...data, type: questionType });
+
+    const doc = await op.runMongo("creating question for assessment", () =>
+      Question.create({
+        ...payload,
+        code,
+        createdBy: session.user.id,
+      }),
+    );
+
+    const ids = [...(assessment.questionIds ?? []), doc._id];
+    assessment.questionIds = ids;
+    const qs = await Question.find({ _id: { $in: ids } }).select("points");
+    assessment.totalMarks = qs.reduce((sum, q) => sum + q.points, 0);
+    await op.runMongo("attaching question to assessment", () => assessment.save());
+
+    revalidatePath("/admin/questions");
+    revalidatePath("/admin/assessments");
+    revalidatePath(`/admin/assessments/${assessmentId}`);
+    revalidatePath("/student/assessments");
+    op.success({ code: doc.code, assessmentId, type: doc.type });
+    return { question: serializeQuestion(doc), assessmentId };
+  } catch (error) {
+    op.fail(error, { resourceId: assessmentId });
     return toError(error);
   }
 }
@@ -146,6 +232,21 @@ export async function updateQuestionAction(id: string, raw: unknown) {
     op.auth(session.user);
     const data = questionInputSchema.parse(raw);
     await connectDB();
+
+    const linkedAssessments = await op.runMongo(
+      "checking linked assessments",
+      () => Assessment.find({ questionIds: id }).select("type title code"),
+    );
+    for (const assessment of linkedAssessments) {
+      if (
+        !questionMatchesAssessmentType(
+          assessment.type,
+          data.type as QuestionType,
+        )
+      ) {
+        throw new ActionError(QUESTION_TYPE_MISMATCH_ERROR);
+      }
+    }
 
     const doc = await op.runMongo("updating question", () =>
       Question.findByIdAndUpdate(

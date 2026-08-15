@@ -201,6 +201,8 @@ export async function loadExamSessionAction(attemptId: string) {
             requireFullscreen?: boolean;
             blockCopyPaste?: boolean;
             monitorTabSwitching?: boolean;
+            requireFaceDetection?: boolean;
+            requireHeadMonitoring?: boolean;
           }
         | null
         | undefined,
