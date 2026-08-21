@@ -9,9 +9,9 @@ import {
   FACE_NO_FACE_THRESHOLD_MS,
 } from "@/lib/face/constants";
 import {
-  countFacesInVideo,
   getFaceDetector,
   releaseFaceDetector,
+  sampleFacePresenceInVideo,
 } from "@/lib/face/detector";
 
 export type FaceMonitoringStatus =
@@ -149,14 +149,18 @@ export function useFaceDetection({
     const video = videoRef.current;
     if (!video) return;
 
-    const count = countFacesInVideo(
+    const sample = sampleFacePresenceInVideo(
       detectorRef.current,
       video,
       performance.now(),
     );
+    const count = sample.count;
     if (count < 0) return;
 
-    faceLog("Detection", { faceCount: count });
+    faceLog("Detection", {
+      faceCount: count,
+      confidence: sample.avgConfidence,
+    });
     updateFaceCount(count);
 
     const now = Date.now();
@@ -184,7 +188,11 @@ export function useFaceDetection({
           "Face not detected. Please remain visible to the camera.",
         );
         faceLog("No face threshold reached", { durationMs });
-        void persistEvent("NO_FACE_DETECTED", { faceCount: 0, durationMs });
+        void persistEvent("NO_FACE_DETECTED", {
+          faceCount: 0,
+          durationMs,
+          confidence: sample.avgConfidence,
+        });
       } else if (episodeRef.current !== "no_face") {
         updateStatus("active");
       }
@@ -208,7 +216,11 @@ export function useFaceDetection({
         "Multiple faces detected. Please ensure only the exam candidate is visible.",
       );
       faceLog("Multiple face threshold reached", { faceCount: count, durationMs });
-      void persistEvent("MULTIPLE_FACES_DETECTED", { faceCount: count, durationMs });
+      void persistEvent("MULTIPLE_FACES_DETECTED", {
+        faceCount: count,
+        durationMs,
+        confidence: sample.avgConfidence,
+      });
     } else if (episodeRef.current !== "multiple_faces") {
       updateStatus("active");
     }

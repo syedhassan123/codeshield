@@ -68,6 +68,13 @@ const ExamRecordingSchema = new Schema(
 );
 
 ExamRecordingSchema.index({ attemptId: 1, createdAt: -1 });
+ExamRecordingSchema.index(
+  { attemptId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: "RECORDING" },
+  },
+);
 
 export type ExamRecordingDocument = InferSchemaType<
   typeof ExamRecordingSchema

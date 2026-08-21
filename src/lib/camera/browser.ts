@@ -1,6 +1,6 @@
 /**
  * Browser camera helpers (no AI).
- * Microphone is intentionally not requested in Phase 7.
+ * Microphone is intentionally not requested in Phase 7/10.
  */
 
 export type CameraDeviceOption = {
@@ -8,8 +8,19 @@ export type CameraDeviceOption = {
   label: string;
 };
 
+export function isGetUserMediaSupported() {
+  return Boolean(
+    typeof navigator !== "undefined" &&
+      navigator.mediaDevices?.getUserMedia,
+  );
+}
+
+export function isMediaRecorderSupported() {
+  return typeof MediaRecorder !== "undefined";
+}
+
 export function pickSupportedRecorderMimeType(): string {
-  if (typeof MediaRecorder === "undefined") return "";
+  if (!isMediaRecorderSupported()) return "";
   const candidates = [
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
@@ -20,6 +31,22 @@ export function pickSupportedRecorderMimeType(): string {
     if (MediaRecorder.isTypeSupported(type)) return type;
   }
   return "";
+}
+
+export function waitForRecorderStop(recorder: MediaRecorder): Promise<void> {
+  if (recorder.state === "inactive") return Promise.resolve();
+  return new Promise((resolve) => {
+    const onStop = () => {
+      recorder.removeEventListener("stop", onStop);
+      resolve();
+    };
+    recorder.addEventListener("stop", onStop);
+    try {
+      recorder.stop();
+    } catch {
+      resolve();
+    }
+  });
 }
 
 export async function listVideoInputDevices(): Promise<CameraDeviceOption[]> {

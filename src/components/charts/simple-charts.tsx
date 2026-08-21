@@ -12,117 +12,116 @@ import {
   YAxis,
 } from "recharts";
 
-const weekData = [
-  { name: "Mon", value: 40 },
-  { name: "Tue", value: 65 },
-  { name: "Wed", value: 50 },
-  { name: "Thu", value: 90 },
-  { name: "Fri", value: 120 },
-  { name: "Sat", value: 70 },
-  { name: "Sun", value: 55 },
-];
+export type ChartPoint = { name: string; value: number };
+export type GrowthPoint = {
+  name: string;
+  students: number;
+  interviewers: number;
+};
+export type SecuritySegment = { label: string; value: number; color: string };
 
-const monthData = [
-  { name: "Jan", students: 120, interviewers: 20 },
-  { name: "Feb", students: 180, interviewers: 28 },
-  { name: "Mar", students: 240, interviewers: 35 },
-  { name: "Apr", students: 300, interviewers: 40 },
-  { name: "May", students: 360, interviewers: 48 },
-  { name: "Jun", students: 420, interviewers: 55 },
-  { name: "Jul", students: 480, interviewers: 62 },
-  { name: "Aug", students: 520, interviewers: 70 },
-];
-
-const langData = [
-  { name: "Python", value: 58 },
-  { name: "JavaScript", value: 42 },
-  { name: "Java", value: 35 },
-  { name: "C++", value: 28 },
-];
-
-export function ActivityAreaChart() {
+export function ActivityAreaChart({ data = [] }: { data?: ChartPoint[] }) {
   return (
     <div className="h-56">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={weekData}>
-          <defs>
-            <linearGradient id="activity" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#4f55f3" stopOpacity={0.35} />
-              <stop offset="100%" stopColor="#4f55f3" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e8edf5" />
-          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-          <YAxis tick={{ fontSize: 11 }} />
-          <Tooltip />
-          <Area
-            type="monotone"
-            dataKey="value"
-            stroke="#4f55f3"
-            fill="url(#activity)"
-            strokeWidth={2}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+      {data.length ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data}>
+            <defs>
+              <linearGradient id="activity" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#4f55f3" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#4f55f3" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e8edf5" />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            <Tooltip />
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke="#4f55f3"
+              fill="url(#activity)"
+              strokeWidth={2}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+          No attempt activity in the last 7 days.
+        </div>
+      )}
     </div>
   );
 }
 
-export function GrowthBarChart() {
+export function GrowthBarChart({ data = [] }: { data?: GrowthPoint[] }) {
   return (
     <div className="h-56">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={monthData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e8edf5" />
-          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-          <YAxis tick={{ fontSize: 11 }} />
-          <Tooltip />
-          <Bar dataKey="students" fill="#4f55f3" radius={[6, 6, 0, 0]} />
-          <Bar dataKey="interviewers" fill="#2e83fb" radius={[6, 6, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
+      {data.length ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e8edf5" />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            <Tooltip />
+            <Bar dataKey="students" fill="#4f55f3" radius={[6, 6, 0, 0]} />
+            <Bar dataKey="interviewers" fill="#2e83fb" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+          No user registrations in this period.
+        </div>
+      )}
     </div>
   );
 }
 
-export function LanguageBarChart() {
+export function LanguageBarChart({ data = [] }: { data?: ChartPoint[] }) {
   return (
     <div className="h-56">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={langData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e8edf5" />
-          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-          <YAxis tick={{ fontSize: 11 }} />
-          <Tooltip />
-          <Bar dataKey="value" fill="#436df7" radius={[6, 6, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
+      {data.length ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e8edf5" />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            <Tooltip />
+            <Bar dataKey="value" fill="#436df7" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+          No coding submissions yet.
+        </div>
+      )}
     </div>
   );
 }
 
-export function SecurityDonut() {
-  const segments = [
-    { label: "Safe", value: 78, color: "var(--success)" },
-    { label: "Warnings", value: 16, color: "var(--warning)" },
-    { label: "Violations", value: 6, color: "var(--danger)" },
-  ];
+export function SecurityDonut({ segments = [] }: { segments?: SecuritySegment[] }) {
   return (
     <div className="space-y-3">
-      {segments.map((s) => (
-        <div key={s.label}>
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="font-semibold">{s.label}</span>
-            <span className="text-muted-foreground">{s.value}%</span>
+      {segments.length ? (
+        segments.map((segment) => (
+          <div key={segment.label}>
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="font-semibold">{segment.label}</span>
+              <span className="text-muted-foreground">{segment.value}%</span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${segment.value}%`, background: segment.color }}
+              />
+            </div>
           </div>
-          <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full rounded-full"
-              style={{ width: `${s.value}%`, background: s.color }}
-            />
-          </div>
+        ))
+      ) : (
+        <div className="text-sm text-muted-foreground">
+          No active sessions to summarize.
         </div>
-      ))}
+      )}
     </div>
   );
 }

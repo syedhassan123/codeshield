@@ -1,6 +1,6 @@
-# CodeShield AI (Phase 0)
+# CodeShield AI
 
-Next.js migration of the Lovable CodeShield AI prototype — UI preserved, real auth + MongoDB foundation, mock domain data.
+Next.js assessment and proctoring platform — Lovable UI preserved, real auth, MongoDB-backed exams, grading, coding runner, and proctoring.
 
 ## Stack
 
@@ -8,6 +8,8 @@ Next.js migration of the Lovable CodeShield AI prototype — UI preserved, real 
 - Tailwind CSS v4 + shadcn/ui primitives + Lucide
 - MongoDB + Mongoose
 - Auth.js (NextAuth v5) credentials + JWT sessions
+- Judge0 / Piston isolated code runner
+- MediaPipe face + head-pose monitoring during exams
 
 ## Setup
 
@@ -27,6 +29,12 @@ Required:
 
 - `MONGODB_URI` — MongoDB Atlas connection string
 - `AUTH_SECRET` — long random string
+
+Optional (see `.env.example`):
+
+- Code runner (`JUDGE0_URL`, `CODE_RUNNER_PROVIDER`)
+- Exam recording storage (`STORAGE_PROVIDER`, S3/R2 vars)
+- SMTP for registration OTP
 
 3. Seed demo users:
 
@@ -52,10 +60,84 @@ Open [http://localhost:3000](http://localhost:3000).
 | Student (landing default) | `demo@codeshield.ai` | `password123` |
 
 - **Quick-login** buttons sign in fully verified (skips OTP/face).
-- **Email/password** goes through `/verify-otp` → `/verify-face` (mock UI, session flags updated server-side).
+- **Email/password** registration uses email OTP; `/verify-face` remains optional mock UI.
 
-## Phase 0 scope
+## Completed phases
 
-Included: route migration, design tokens, workspace shells, User model, RBAC middleware, seed users.
+| Phase | Scope |
+|-------|--------|
+| **0** | Route migration, design tokens, workspace shells, User model, RBAC, seed users |
+| **1** | Question bank + assessment CRUD, publish/unpublish |
+| **2** | Exam attempts, timer, autosave, submit, MCQ auto-score |
+| **3** | Results list, manual subjective grading, evaluation completion |
+| **4** | Registration email OTP, verified login flow |
+| **5** | Isolated coding runner, visible/hidden tests, auto coding score |
+| **6** | Exam security events (tab switch, copy/paste, fullscreen) |
+| **7** | Webcam recording during exams, admin playback |
+| **8A** | Face count monitoring (no face / multiple faces) |
+| **8B** | Head-pose / looking-away monitoring |
+| **9** | Admin dashboard, monitoring, students, reports wired to MongoDB; CSV/PDF export |
+| **10** | Proctoring infrastructure hardening — camera pre-check, recording lifecycle, upload retry, idempotency, security monitoring cleanup, admin playback states |
+| **11** | Advanced AI proctoring analysis — evidence aggregation, temporal correlation, explainable risk scoring, unified timeline, automated review summary |
 
-Still mock: assessments, proctoring, coding runner, interviews/WebRTC, AI evaluation, reports export.
+## Phase 11 — Advanced AI proctoring
+
+Builds an intelligence layer on top of existing Phase 8A/8B vision monitoring and Phase 10 recording — **without replacing them**.
+
+- Aggregates `SecurityEvent` evidence (browser + vision + camera/recording)
+- Debounced face/head signals preserved from Phase 8A/8B
+- Temporal correlation windows for multi-signal review periods
+- Explainable risk score (0–100) with documented factor weights
+- Unified proctoring timeline with recording-relative timestamps
+- Cautious automated review summary (decision-support only — **does not auto-fail students or change grades**)
+- Admin attempt detail: `/admin/results/[attemptId]`
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase11-ai-proctoring.ts
+```
+
+## Phase 10 — Proctoring & recording hardening
+
+Reliability improvements for the existing proctoring pipeline (no new AI detection):
+
+- Assessment security settings (`requireCamera`, fullscreen, copy/paste, tab monitoring) drive exam behavior
+- Camera pre-check with permission/unavailable/browser error handling
+- MediaRecorder MIME fallback, error handling, and accurate recording status UI
+- Recording idempotency (one active `RECORDING` row per attempt; resume after refresh)
+- Upload retry on submit, server-side attempt ownership validation
+- Security event linkage and listener cleanup on submit/unmount
+- Admin playback handles READY / FAILED / in-progress recording states
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase10-proctoring.ts
+```
+
+## Phase 9 — Admin real data
+
+The Admin area now reads from MongoDB instead of `mock-data.ts`:
+
+- `/admin` — stat cards, charts, recent security alerts, recent assessments
+- `/admin/monitoring` — active attempts, security event stream (30s refresh)
+- `/admin/students` — real student users with search/filter/pagination
+- `/admin/reports` — attempt/result/proctoring reports with filters, CSV export, printable PDF
+
+## Still mock / future work
+
+- `/admin/interviews` and all interview/WebRTC pages
+- Student/interviewer dashboard mock widgets (notifications, certificates, etc.)
+- Standalone `/student/coding` practice editor
+- AI subjective evaluation assist
+- Live WebSocket monitoring (Phase 9 uses polling)
+- External LLM-generated summaries (Phase 11 uses rule-based automated review text)
+
+## Verification scripts
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase2-exam.ts
+npx tsx --env-file=.env.local scripts/verify-phase3-grading.ts
+npx tsx --env-file=.env.local scripts/verify-exam-security.ts
+npx tsx --env-file=.env.local scripts/verify-phase10-proctoring.ts
+npx tsx --env-file=.env.local scripts/verify-phase11-ai-proctoring.ts
+```
+
+See `docs/CODE_RUNNER.md` for code runner setup.

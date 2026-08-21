@@ -65,6 +65,25 @@ export async function beginExamRecordingAction(raw: unknown) {
       throw new ActionError("Exam attempt is not active.");
     }
 
+    const existing = await ExamRecording.findOne({
+      attemptId: attempt._id,
+      userId: session.user.id,
+      status: { $in: ["RECORDING", "UPLOADING"] },
+    }).sort({ createdAt: -1 });
+
+    if (existing) {
+      debugLog("EXAM", "RECORDING_REUSED", {
+        attemptId: maskId(data.attemptId),
+        recordingId: maskId(existing._id.toString()),
+      });
+      return {
+        success: true as const,
+        recordingId: existing._id.toString(),
+        storageProvider: existing.storageProvider,
+        reused: true as const,
+      };
+    }
+
     const storage = await getStorageProvider();
     const storageKey = buildRecordingObjectKey({
       attemptId: attempt._id.toString(),
@@ -110,6 +129,44 @@ export async function beginExamRecordingAction(raw: unknown) {
   }
 }
 
+/** Student: active recording row for an in-progress attempt (resume after refresh). */
+export async function getActiveExamRecordingAction(attemptId: string) {
+  try {
+    const session = await requireStudent();
+    await connectDB();
+    const attempt = await getOwnedAttempt(attemptId, session.user.id);
+    if (attempt.status !== "in_progress") {
+      return { success: true as const, recording: null };
+    }
+
+    const recording = await ExamRecording.findOne({
+      attemptId: attempt._id,
+      userId: session.user.id,
+      status: { $in: ["RECORDING", "UPLOADING"] },
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!recording) {
+      return { success: true as const, recording: null };
+    }
+
+    return {
+      success: true as const,
+      recording: {
+        id: recording._id.toString(),
+        status: recording.status,
+        mimeType: recording.mimeType,
+      },
+    };
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return { success: false as const, error: error.message };
+    }
+    return { success: false as const, error: "Could not load recording state." };
+  }
+}
+
 /**
  * Finalize + upload recording after successful exam submit.
  * Accepts FormData: attemptId, recordingId, durationSeconds, file
@@ -151,6 +208,14 @@ export async function uploadExamRecordingAction(formData: FormData) {
     }
     if (recording.userId.toString() !== session.user.id) {
       throw new ActionError("Unauthorized");
+    }
+
+    if (recording.status === "READY") {
+      return {
+        success: true as const,
+        recordingId: recording._id.toString(),
+        status: "READY" as const,
+      };
     }
 
     recording.status = "UPLOADING";

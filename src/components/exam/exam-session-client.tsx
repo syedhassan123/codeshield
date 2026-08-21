@@ -167,6 +167,41 @@ export function ExamSessionClient({
   });
 
   useEffect(() => {
+    if (!security.requireCamera || attempt.status !== "in_progress") return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (
+        recordingStatus === "recording" ||
+        recordingStatus === "initializing" ||
+        recordingStatus === "uploading"
+      ) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [security.requireCamera, attempt.status, recordingStatus]);
+
+  const recordingLabel = (() => {
+    switch (recordingStatus) {
+      case "recording":
+        return "● Recording";
+      case "initializing":
+        return "Starting recording…";
+      case "stopping":
+        return "Stopping recording…";
+      case "uploading":
+        return "Uploading recording…";
+      case "ready":
+        return "Recording saved";
+      case "failed":
+        return "Recording unavailable";
+      default:
+        return cameraActive ? "Camera active" : "Starting camera…";
+    }
+  })();
+
+  useEffect(() => {
     if (!security.requireHeadMonitoring) return;
     headDebugSecurityConfig({
       requireCamera: security.requireCamera,
@@ -384,6 +419,16 @@ export function ExamSessionClient({
                   : recordingStatus === "failed"
                     ? "Unavailable"
                     : "Starting…"}
+              </p>
+              <p
+                className={cn(
+                  "font-semibold",
+                  recordingStatus === "recording" && "text-danger",
+                  recordingStatus === "failed" && "text-danger",
+                  recordingStatus === "ready" && "text-success",
+                )}
+              >
+                {recordingLabel}
               </p>
               {security.requireFaceDetection && (
                 <p className="font-semibold">

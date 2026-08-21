@@ -274,6 +274,19 @@ export function AdminProctoringReport({
         </div>
       )}
 
+      {recording?.status === "RECORDING" && (
+        <p className="text-sm text-warning font-medium">
+          Recording was started but not finalized. Playback may be unavailable until
+          the student submits the exam.
+        </p>
+      )}
+
+      {recording?.status === "UPLOADING" && (
+        <p className="text-sm text-warning font-medium">
+          Recording upload was in progress and may be incomplete.
+        </p>
+      )}
+
       {recording?.status === "READY" && (
         <div className="space-y-3">
           <Button size="sm" onClick={loadPlayback} disabled={pending}>

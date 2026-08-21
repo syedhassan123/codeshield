@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   classifyCameraError,
+  isGetUserMediaSupported,
   listVideoInputDevices,
   openCameraStream,
   stopMediaStream,
@@ -45,11 +46,16 @@ export function CameraPrecheck({
       setError("");
       setReady(false);
       stop();
+
+      if (!isGetUserMediaSupported()) {
+        setError(
+          "This browser does not support camera access. Please use a recent version of Chrome, Edge, or Firefox.",
+        );
+        setPending(false);
+        return;
+      }
+
       try {
-        if (typeof console !== "undefined") {
-          // Client-side only — no secrets
-          console.log("[CAMERA] Permission request started");
-        }
         const stream = await openCameraStream(preferredDeviceId || undefined);
         streamRef.current = stream;
         if (videoRef.current) {
@@ -65,7 +71,6 @@ export function CameraPrecheck({
           "";
         setDeviceId(activeId);
         setReady(true);
-        console.log("[CAMERA] Camera available");
       } catch (err) {
         const classified = classifyCameraError(err);
         setError(classified.message);
@@ -90,6 +95,24 @@ export function CameraPrecheck({
     void startPreview();
     return () => stop();
   }, [startPreview, stop]);
+
+  useEffect(() => {
+    if (!navigator.mediaDevices?.addEventListener) return;
+    const onDeviceChange = () => {
+      if (!streamRef.current) return;
+      const track = streamRef.current.getVideoTracks()[0];
+      if (track && track.readyState === "ended") {
+        setReady(false);
+        setError(
+          "Camera was disconnected. Reconnect your webcam and tap Check again.",
+        );
+      }
+    };
+    navigator.mediaDevices.addEventListener("devicechange", onDeviceChange);
+    return () => {
+      navigator.mediaDevices.removeEventListener("devicechange", onDeviceChange);
+    };
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -159,7 +182,6 @@ export function CameraPrecheck({
           className="flex-1"
           disabled={!ready || pending}
           onClick={() => {
-            // Keep stream stopped before navigation; session will reopen with permission.
             stop();
             onConfirmed({ deviceId });
           }}

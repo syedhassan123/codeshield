@@ -13,6 +13,7 @@ import {
 } from "@/lib/debug";
 import { recalculateResultScores } from "@/lib/exam/score";
 import { buildSecuritySummary } from "@/lib/exam/security";
+import { analyzeProctoringAttempt } from "@/lib/proctoring/analyze";
 import {
   serializeAttempt,
   serializeResult,
@@ -284,6 +285,14 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
     }));
 
     // This exact object is returned to the client AND logged as [API RESPONSE].
+    const proctoringAnalysis = analyzeProctoringAttempt({
+      events: securitySerialized,
+      attemptStartedAt: attempt.startedAt.toISOString(),
+      recordingStartedAt: recording?.startedAt
+        ? new Date(recording.startedAt).toISOString()
+        : null,
+    });
+
     const payload = {
       attempt: serializeAttempt(attempt),
       student: {
@@ -333,6 +342,7 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
             errorMessage: recording.errorMessage ?? "",
           }
         : null,
+      proctoringAnalysis,
     };
 
     return op.respond(payload, 200);

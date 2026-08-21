@@ -38,10 +38,38 @@ export function countFacesInVideo(
   video: HTMLVideoElement,
   timestampMs: number,
 ): number {
-  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return -1;
-  if (video.videoWidth <= 0 || video.videoHeight <= 0) return -1;
+  return sampleFacePresenceInVideo(detector, video, timestampMs).count;
+}
+
+export type FacePresenceSample = {
+  count: number;
+  avgConfidence: number | null;
+};
+
+/** Returns face count and average detector confidence when available. */
+export function sampleFacePresenceInVideo(
+  detector: MpFaceDetector,
+  video: HTMLVideoElement,
+  timestampMs: number,
+): FacePresenceSample {
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return { count: -1, avgConfidence: null };
+  }
+  if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+    return { count: -1, avgConfidence: null };
+  }
   const result = detector.detectForVideo(video, timestampMs);
-  return result.detections.length;
+  const scores = result.detections
+    .map((detection) => detection.categories?.[0]?.score)
+    .filter((score): score is number => typeof score === "number");
+  const avgConfidence =
+    scores.length > 0
+      ? scores.reduce((sum, score) => sum + score, 0) / scores.length
+      : null;
+  return {
+    count: result.detections.length,
+    avgConfidence,
+  };
 }
 
 export async function releaseFaceDetector() {
