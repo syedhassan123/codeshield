@@ -16,6 +16,13 @@
  */
 
 import { debugError, debugLog } from "@/lib/debug";
+import {
+  CODING_RUNNER_HTTP_TIMEOUT_MS,
+} from "@/lib/coding/config";
+import {
+  clampRunnerOutput,
+  sanitizeStudentExecutionMessage,
+} from "@/lib/coding/security";
 import type { CodingLanguage } from "@/types/assessment";
 
 export type RunnerExecuteInput = {
@@ -148,14 +155,19 @@ async function executeJudge0(
     wall_time_limit: cpuLimit + 1,
     memory_limit: Math.max(20480, input.memoryLimitMb * 1024),
     max_output_size: 65536,
+    enable_network: false,
   };
 
   const url = `${base}/submissions?base64_encoded=false&wait=true`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  const res = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    },
+    CODING_RUNNER_HTTP_TIMEOUT_MS + input.timeLimitMs,
+  );
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -174,9 +186,9 @@ async function executeJudge0(
 
   const statusId = data.status?.id ?? 13;
   const timeMs = Math.round(Number(data.time || 0) * 1000);
-  const stdout = data.stdout || "";
-  const stderr = data.stderr || "";
-  const compileOutput = data.compile_output || "";
+  const stdout = clampRunnerOutput(data.stdout || "");
+  const stderr = clampRunnerOutput(data.stderr || "");
+  const compileOutput = clampRunnerOutput(data.compile_output || "");
 
   // Judge0 status ids: 3 accepted, 4 wrong answer, 5 TLE, 6 CE, 7+ RE, 13 IE, etc.
   let status: RunnerExecuteResult["status"] = "internal_error";
@@ -217,18 +229,22 @@ async function executePiston(
     headers.Authorization = `Bearer ${process.env.PISTON_API_KEY}`;
   }
 
-  const res = await fetch(`${base}/api/v2/execute`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      language: meta.language,
-      version: meta.version,
-      files: [{ name: meta.file, content: input.sourceCode }],
-      stdin: input.stdin,
-      run_timeout: input.timeLimitMs,
-      run_memory_limit: input.memoryLimitMb * 1024 * 1024,
-    }),
-  });
+  const res = await fetchWithTimeout(
+    `${base}/api/v2/execute`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        language: meta.language,
+        version: meta.version,
+        files: [{ name: meta.file, content: input.sourceCode }],
+        stdin: input.stdin,
+        run_timeout: input.timeLimitMs,
+        run_memory_limit: input.memoryLimitMb * 1024 * 1024,
+      }),
+    },
+    CODING_RUNNER_HTTP_TIMEOUT_MS + input.timeLimitMs,
+  );
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -278,8 +294,8 @@ async function executePiston(
   else if (code != null && code !== 0) status = "runtime_error";
 
   return {
-    stdout: run.stdout || "",
-    stderr: run.stderr || "",
+    stdout: clampRunnerOutput(run.stdout || ""),
+    stderr: clampRunnerOutput(run.stderr || ""),
     compileOutput: "",
     exitCode: code,
     signal,
@@ -290,11 +306,30 @@ async function executePiston(
   };
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Code runner request timed out.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function safeRunnerMessage(
   status: RunnerExecuteResult["status"],
   raw: string,
 ) {
-  const trimmed = raw.slice(0, 500);
+  const trimmed = sanitizeStudentExecutionMessage(raw);
   switch (status) {
     case "timeout":
       return "Time limit exceeded.";
@@ -305,7 +340,7 @@ function safeRunnerMessage(
     case "runtime_error":
       return trimmed || "Runtime error.";
     case "internal_error":
-      return trimmed || "Execution failed.";
+      return "Execution is temporarily unavailable. Try again shortly.";
     default:
       return "";
   }

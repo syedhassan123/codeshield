@@ -5,7 +5,7 @@ import { RoleLayoutClient } from "@/components/layout/role-layout-client";
 const nav: NavItemConfig[] = [
   { href: "/student", label: "Dashboard", icon: "LayoutDashboard" },
   { href: "/student/assessments", label: "Assessments", icon: "ClipboardList" },
-  { href: "/student/coding", label: "Coding Tests", icon: "Code2" },
+  // { href: "/student/coding", label: "Coding Tests", icon: "Code2" },
   { href: "/student/interviews", label: "Interviews", icon: "Video" },
   { href: "/student/results", label: "Results", icon: "Trophy" },
   { href: "/student/certificates", label: "Certificates", icon: "Award" },

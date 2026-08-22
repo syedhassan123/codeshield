@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useTransition,
 } from "react";
 import { Play, Save, Send } from "lucide-react";
 import {
@@ -89,7 +88,8 @@ export function ExamCodingPanel({
   });
   const sourceCode = codeByLang[activeLang] ?? "";
 
-  const [busy, startTransition] = useTransition();
+  const [runBusy, setRunBusy] = useState(false);
+  const [submitBusy, setSubmitBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">(
@@ -109,6 +109,8 @@ export function ExamCodingPanel({
 
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestRef = useRef({ lang: activeLang, code: sourceCode });
+  const runInflight = useRef(false);
+  const submitInflight = useRef(false);
   latestRef.current = { lang: activeLang, code: sourceCode };
 
   // Reset local editor state only when the question changes — never on each keystroke.
@@ -137,7 +139,7 @@ export function ExamCodingPanel({
 
   useEffect(() => {
     let cancelled = false;
-    startTransition(async () => {
+    void (async () => {
       const result = await getCodingSubmissionSummaryAction(
         attemptId,
         question.id,
@@ -154,7 +156,7 @@ export function ExamCodingPanel({
           status: result.submission.status,
         });
       }
-    });
+    })();
     return () => {
       cancelled = true;
     };
@@ -231,10 +233,13 @@ export function ExamCodingPanel({
     void persistDraft(activeLang, sourceCode);
   };
 
-  const runVisible = () => {
+  const runVisible = async () => {
+    if (runInflight.current || submitInflight.current || runBusy) return;
     setError("");
     const { lang, code } = latestRef.current;
-    startTransition(async () => {
+    runInflight.current = true;
+    setRunBusy(true);
+    try {
       if (dirty) {
         await persistDraft(lang, code);
       }
@@ -254,13 +259,19 @@ export function ExamCodingPanel({
           `${result.passedTests}/${result.totalTests} visible tests passed · ${result.executionTimeMs}ms`,
         );
       }
-    });
+    } finally {
+      runInflight.current = false;
+      setRunBusy(false);
+    }
   };
 
-  const submitCode = () => {
+  const submitCode = async () => {
+    if (runInflight.current || submitInflight.current || submitBusy) return;
     setError("");
     const { lang, code } = latestRef.current;
-    startTransition(async () => {
+    submitInflight.current = true;
+    setSubmitBusy(true);
+    try {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
       const result = await submitCodingAction({
         attemptId,
@@ -284,10 +295,14 @@ export function ExamCodingPanel({
         });
         onDraftChange({ selectedOptionKey: lang, textAnswer: code });
       }
-    });
+    } finally {
+      submitInflight.current = false;
+      setSubmitBusy(false);
+    }
   };
 
   const editorLocked = finalized || disabled;
+  const actionBusy = runBusy || submitBusy;
 
   return (
     <div className="space-y-4">
@@ -363,7 +378,7 @@ export function ExamCodingPanel({
             <button
               key={lang}
               type="button"
-              disabled={editorLocked || busy}
+              disabled={editorLocked || actionBusy}
               onClick={() => setLanguage(lang)}
               className={cn(
                 "px-3 py-1.5 rounded-lg text-xs font-semibold border",
@@ -402,20 +417,20 @@ export function ExamCodingPanel({
             type="button"
             variant="outline"
             size="sm"
-            disabled={editorLocked || busy || !sourceCode.trim()}
-            onClick={runVisible}
+            disabled={editorLocked || actionBusy || !sourceCode.trim()}
+            onClick={() => void runVisible()}
           >
             <Play className="w-3.5 h-3.5" />
-            {busy ? "Working…" : "Run"}
+            {runBusy ? "Running…" : "Run"}
           </Button>
           <Button
             type="button"
             size="sm"
-            disabled={editorLocked || busy || !sourceCode.trim()}
-            onClick={submitCode}
+            disabled={editorLocked || actionBusy || !sourceCode.trim()}
+            onClick={() => void submitCode()}
           >
             <Send className="w-3.5 h-3.5" />
-            {finalized ? "Submitted" : "Submit code"}
+            {submitBusy ? "Submitting…" : finalized ? "Submitted" : "Submit code"}
           </Button>
         </div>
       </div>

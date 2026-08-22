@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ZodError, z } from "zod";
+import { z } from "zod";
 import { ActionError, requireStudent } from "@/lib/auth-guards";
 import { evaluateAgainstTests } from "@/lib/coding/evaluate";
+import { CODING_RUN_COOLDOWN_MS } from "@/lib/coding/config";
+import { assertValidCodingSource } from "@/lib/coding/security";
 import { connectDB } from "@/lib/db";
 import { createServerOp, debugLog, maskId } from "@/lib/debug";
 import {
@@ -18,21 +20,24 @@ import { Question } from "@/models/Question";
 import { Result } from "@/models/Result";
 import { CODING_LANGUAGES } from "@/types/assessment";
 
-function toError(error: unknown) {
-  if (error instanceof ActionError) return { error: error.message };
-  if (error instanceof ZodError) {
-    return { error: error.issues[0]?.message || "Invalid input." };
-  }
-  if (error instanceof Error) return { error: error.message };
-  return { error: "Something went wrong." };
-}
-
 const codingPayloadSchema = z.object({
   attemptId: z.string().min(1),
   questionId: z.string().min(1),
   language: z.enum(CODING_LANGUAGES),
   sourceCode: z.string().min(1).max(100_000),
 });
+
+const runCooldown = new Map<string, number>();
+
+function assertRunCooldown(attemptId: string, questionId: string) {
+  const key = `${attemptId}:${questionId}`;
+  const last = runCooldown.get(key) ?? 0;
+  const now = Date.now();
+  if (now - last < CODING_RUN_COOLDOWN_MS) {
+    throw new ActionError("Please wait before running again.");
+  }
+  runCooldown.set(key, now);
+}
 
 async function loadCodingContext(studentId: string, attemptId: string, questionId: string) {
   let attempt = await getOwnedAttempt(attemptId, studentId);
@@ -83,6 +88,9 @@ export async function runCodingVisibleAction(raw: unknown) {
       throw new ActionError("Unsupported language for this question.");
     }
 
+    assertValidCodingSource(data.sourceCode);
+    assertRunCooldown(data.attemptId, data.questionId);
+
     const visible = (question.testCases || []).filter((t) => !t.isHidden);
     if (!visible.length) {
       throw new ActionError("No visible test cases configured.");
@@ -124,30 +132,38 @@ export async function runCodingVisibleAction(raw: unknown) {
       { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
     );
 
-    await CodingSubmission.create({
-      studentId: session.user.id,
-      attemptId: attempt._id,
-      assessmentId: attempt.assessmentId,
-      questionId: question._id,
-      language: data.language,
-      sourceCode: data.sourceCode,
-      kind: "run",
-      status: evaluation.status,
-      passedTests: evaluation.passedTests,
-      totalTests: evaluation.totalTests,
-      score: 0,
-      maxScore: question.points,
-      executionTimeMs: evaluation.executionTimeMs,
-      visibleResults: evaluation.results.map((r) => ({
-        index: r.index,
-        passed: r.passed,
-        status: r.status,
-        timeMs: r.timeMs,
-        message: r.message,
-      })),
-      finalized: false,
-      submittedAt: null,
-    });
+    await CodingSubmission.findOneAndUpdate(
+      {
+        attemptId: attempt._id,
+        questionId: question._id,
+        kind: "run",
+      },
+      {
+        $set: {
+          studentId: session.user.id,
+          assessmentId: attempt.assessmentId,
+          language: data.language,
+          sourceCode: data.sourceCode,
+          kind: "run",
+          status: evaluation.status,
+          passedTests: evaluation.passedTests,
+          totalTests: evaluation.totalTests,
+          score: 0,
+          maxScore: question.points,
+          executionTimeMs: evaluation.executionTimeMs,
+          visibleResults: evaluation.results.map((r) => ({
+            index: r.index,
+            passed: r.passed,
+            status: r.status,
+            timeMs: r.timeMs,
+            message: r.message,
+          })),
+          finalized: false,
+          submittedAt: null,
+        },
+      },
+      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
+    );
 
     debugLog("CODING", "run_visible_done", {
       passed: `${evaluation.passedTests}/${evaluation.totalTests}`,
@@ -197,6 +213,8 @@ export async function submitCodingAction(raw: unknown) {
     if (!question.codingLanguages.includes(data.language)) {
       throw new ActionError("Unsupported language for this question.");
     }
+
+    assertValidCodingSource(data.sourceCode);
 
     const existingFinal = await CodingSubmission.findOne({
       attemptId: attempt._id,

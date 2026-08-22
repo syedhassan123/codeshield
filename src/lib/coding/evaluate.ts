@@ -1,5 +1,6 @@
 import { executeInSandbox } from "@/lib/coding/runner";
 import { outputsMatch } from "@/lib/coding/normalize";
+import { clampStdin } from "@/lib/coding/security";
 import { debugLog } from "@/lib/debug";
 import type { CodingLanguage } from "@/types/assessment";
 
@@ -21,6 +22,49 @@ export type CaseEvalResult = {
   weight: number;
 };
 
+export type CodingEvalStatus =
+  | "accepted"
+  | "partial"
+  | "wrong_answer"
+  | "error"
+  | "timeout"
+  | "failed";
+
+function mapSubmissionStatus(options: {
+  results: CaseEvalResult[];
+  passedTests: number;
+  totalTests: number;
+}): CodingEvalStatus {
+  const statuses = options.results.map((r) => r.status);
+  if (statuses.some((s) => s === "compile_error")) return "error";
+  if (statuses.some((s) => s === "timeout")) return "timeout";
+  if (statuses.some((s) => s === "runtime_error" || s === "memory_limit")) {
+    return "failed";
+  }
+  if (options.passedTests === options.totalTests) return "accepted";
+  if (options.passedTests === 0) return "wrong_answer";
+  return "partial";
+}
+
+function skipRemainingCases(
+  results: CaseEvalResult[],
+  startIndex: number,
+  total: number,
+  reason: string,
+  status: string,
+) {
+  for (let i = startIndex; i < total; i++) {
+    results.push({
+      index: i + 1,
+      passed: false,
+      status,
+      timeMs: 0,
+      message: reason,
+      weight: 1,
+    });
+  }
+}
+
 export async function evaluateAgainstTests(options: {
   language: CodingLanguage;
   sourceCode: string;
@@ -29,8 +73,11 @@ export async function evaluateAgainstTests(options: {
   memoryLimitMb: number;
   revealOutputs: boolean;
   maxScore: number;
+  /** Test hook only — defaults to isolated sandbox executor. */
+  execute?: typeof executeInSandbox;
 }) {
   const { tests, maxScore } = options;
+  const runInSandbox = options.execute ?? executeInSandbox;
   const totalWeight =
     tests.reduce((sum, t) => sum + (t.weight && t.weight > 0 ? t.weight : 1), 0) ||
     1;
@@ -38,14 +85,17 @@ export async function evaluateAgainstTests(options: {
   const results: CaseEvalResult[] = [];
   let passedWeight = 0;
   let totalTime = 0;
+  let stoppedEarly = false;
 
   for (let i = 0; i < tests.length; i++) {
+    if (stoppedEarly) break;
+
     const test = tests[i];
     const weight = test.weight && test.weight > 0 ? test.weight : 1;
-    const run = await executeInSandbox({
+    const run = await runInSandbox({
       language: options.language,
       sourceCode: options.sourceCode,
-      stdin: test.input,
+      stdin: clampStdin(test.input),
       timeLimitMs: options.timeLimitMs,
       memoryLimitMb: options.memoryLimitMb,
     });
@@ -71,6 +121,17 @@ export async function evaluateAgainstTests(options: {
       stdout: options.revealOutputs ? run.stdout.slice(0, 4000) : undefined,
       weight,
     });
+
+    if (run.status === "compile_error") {
+      skipRemainingCases(
+        results,
+        i + 1,
+        tests.length,
+        "Skipped after compilation error.",
+        "compile_error",
+      );
+      stoppedEarly = true;
+    }
   }
 
   const score = Math.round((passedWeight / totalWeight) * maxScore);
@@ -90,11 +151,10 @@ export async function evaluateAgainstTests(options: {
     score,
     maxScore,
     executionTimeMs: totalTime,
-    status:
-      passedTests === tests.length
-        ? ("accepted" as const)
-        : passedTests === 0
-          ? ("wrong_answer" as const)
-          : ("partial" as const),
+    status: mapSubmissionStatus({
+      results,
+      passedTests,
+      totalTests: tests.length,
+    }),
   };
 }

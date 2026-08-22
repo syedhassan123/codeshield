@@ -1,45 +1,66 @@
 import Link from "next/link";
 import { ArrowRight, Bell } from "lucide-react";
-import mongoose from "mongoose";
-import { auth } from "@/lib/auth";
-import { connectDB } from "@/lib/db";
-import {
-  displayDifficulty,
-  displayType,
-  serializeAssessment,
-} from "@/lib/serializers";
-import { Assessment } from "@/models/Assessment";
 import { ActivityAreaChart } from "@/components/charts/simple-charts";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
-import { mockInterviews, mockNotifications } from "@/lib/mock-data";
+import { connectDB } from "@/lib/db";
+import { getStudentDashboardData } from "@/lib/student/dashboard-queries";
+import { requirePageRole } from "@/lib/safe-auth";
+import {
+  displayDifficulty,
+  displayType,
+} from "@/lib/serializers";
+
+function attemptStatusLabel(
+  status: "not_started" | "in_progress" | "completed",
+) {
+  switch (status) {
+    case "in_progress":
+      return "In progress";
+    case "completed":
+      return "Completed";
+    default:
+      return "Not started";
+  }
+}
 
 export default async function StudentDashboardPage() {
-  const session = await auth();
-  const first = session?.user?.name?.split(" ")[0] || "there";
-  console.log("Logged in user:", session)
+  const session = await requirePageRole(["student"]);
+  const first = session.user.name?.split(" ")[0] || "there";
 
-  let upcoming: ReturnType<typeof serializeAssessment>[] = [];
+  let dashboard = {
+    stats: {
+      assessmentsTaken: 0,
+      codingSolved: 0,
+      interviews: 0,
+      certificates: 0,
+      averageScorePercent: null as number | null,
+      inProgressAttempts: 0,
+    },
+    upcoming: [] as Awaited<
+      ReturnType<typeof getStudentDashboardData>
+    >["upcoming"],
+    performanceTrend: [] as Awaited<
+      ReturnType<typeof getStudentDashboardData>
+    >["performanceTrend"],
+    activity: [] as Awaited<
+      ReturnType<typeof getStudentDashboardData>
+    >["activity"],
+  };
+
   try {
     await connectDB();
-    const studentId = new mongoose.Types.ObjectId(session!.user.id);
-    const docs = await Assessment.find({
-      status: "published",
-      $or: [
-        { visibility: "all" },
-        { visibility: "assigned", assignedStudentIds: studentId },
-      ],
-    })
-      .sort({ publishedAt: -1 })
-      .limit(4);
-    upcoming = docs.map((doc) =>
-      serializeAssessment(doc, {
-        questionCount: doc.questionIds?.length ?? 0,
-      }),
-    );
+    dashboard = await getStudentDashboardData(session.user.id);
   } catch {
-    upcoming = [];
+    dashboard = {
+      stats: dashboard.stats,
+      upcoming: [],
+      performanceTrend: [],
+      activity: [],
+    };
   }
+
+  const { stats, upcoming, performanceTrend, activity } = dashboard;
 
   return (
     <div>
@@ -49,19 +70,34 @@ export default async function StudentDashboardPage() {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Assessments Taken" value="14" />
-        <StatCard label="Coding Solved" value="42" />
-        <StatCard label="Interviews" value="3" />
-        <StatCard label="Certificates" value="5" />
+        <StatCard
+          label="Assessments Taken"
+          value={stats.assessmentsTaken.toLocaleString()}
+        />
+        <StatCard
+          label="Coding Solved"
+          value={stats.codingSolved.toLocaleString()}
+        />
+        <StatCard label="Interviews" value={stats.interviews.toLocaleString()} />
+        <StatCard
+          label="Certificates"
+          value={stats.certificates.toLocaleString()}
+        />
       </div>
 
       <div className="grid lg:grid-cols-3 gap-5 mb-6">
         <div className="card-soft p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-display font-bold">Performance Trend</h3>
-            <span className="text-xs font-semibold text-success">+12%</span>
+            <span className="text-xs font-semibold text-muted-foreground">
+              {stats.averageScorePercent != null
+                ? `Avg score ${stats.averageScorePercent}%`
+                : stats.inProgressAttempts > 0
+                  ? `${stats.inProgressAttempts} in progress`
+                  : "Last 7 days"}
+            </span>
           </div>
-          <ActivityAreaChart />
+          <ActivityAreaChart data={performanceTrend} />
         </div>
         <div className="card-soft p-5">
           <div className="flex items-center gap-2 mb-4">
@@ -69,18 +105,34 @@ export default async function StudentDashboardPage() {
             <h3 className="font-display font-bold">Notifications</h3>
           </div>
           <div className="space-y-2">
-            {mockNotifications.map((n) => (
+            {activity.map((item) => (
               <div
-                key={n.text}
+                key={item.id}
                 className="flex gap-3 items-start p-2 rounded-lg hover:bg-muted/40"
               >
                 <span className="text-primary mt-1">•</span>
-                <div>
-                  <div className="text-sm font-semibold">{n.text}</div>
-                  <div className="text-[11px] text-muted-foreground">{n.time}</div>
+                <div className="min-w-0">
+                  {item.href ? (
+                    <Link
+                      href={item.href}
+                      className="text-sm font-semibold hover:text-primary"
+                    >
+                      {item.text}
+                    </Link>
+                  ) : (
+                    <div className="text-sm font-semibold">{item.text}</div>
+                  )}
+                  <div className="text-[11px] text-muted-foreground">
+                    {item.time}
+                  </div>
                 </div>
               </div>
             ))}
+            {!activity.length && (
+              <p className="text-sm text-muted-foreground py-2">
+                No recent activity yet.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -100,7 +152,11 @@ export default async function StudentDashboardPage() {
             {upcoming.map((a) => (
               <Link
                 key={a.id}
-                href={`/student/exam/${a.id}`}
+                href={
+                  a.attemptStatus === "in_progress" && a.inProgressAttemptId
+                    ? `/student/exam/session/${a.inProgressAttemptId}`
+                    : `/student/exam/${a.id}`
+                }
                 className="flex items-center gap-3 p-3 rounded-xl border border-border hover:border-primary transition group"
               >
                 <div className="w-10 h-10 rounded-xl bg-primary-soft text-primary flex items-center justify-center text-xs font-bold">
@@ -110,7 +166,8 @@ export default async function StudentDashboardPage() {
                   <div className="font-semibold text-sm">{a.title}</div>
                   <div className="text-[11px] text-muted-foreground">
                     {displayType(a.type)} · {a.durationMin} min ·{" "}
-                    {a.questionCount} Qs · {displayDifficulty(a.difficulty)}
+                    {a.questionCount} Qs · {displayDifficulty(a.difficulty)} ·{" "}
+                    {attemptStatusLabel(a.attemptStatus)}
                   </div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 group-hover:text-primary transition" />
@@ -127,23 +184,10 @@ export default async function StudentDashboardPage() {
         <div className="card-soft p-5">
           <h3 className="font-display font-bold mb-4">Upcoming Interviews</h3>
           <div className="space-y-3">
-            {mockInterviews.slice(0, 4).map((i) => (
-              <div
-                key={i.id}
-                className="flex items-center gap-3 p-3 rounded-xl border border-border"
-              >
-                <div className="w-10 h-10 rounded-xl bg-success-soft text-success flex items-center justify-center text-xs font-bold">
-                  {i.type[0]}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm">{i.role}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    with {i.interviewer} · {i.date}
-                  </div>
-                </div>
-                <span className="text-xs font-semibold">{i.status}</span>
-              </div>
-            ))}
+            <p className="text-sm text-muted-foreground py-4">
+              No interviews scheduled yet. Interview scheduling is not available
+              in this release.
+            </p>
           </div>
         </div>
       </div>

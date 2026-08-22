@@ -79,6 +79,28 @@ Open [http://localhost:3000](http://localhost:3000).
 | **9** | Admin dashboard, monitoring, students, reports wired to MongoDB; CSV/PDF export |
 | **10** | Proctoring infrastructure hardening — camera pre-check, recording lifecycle, upload retry, idempotency, security monitoring cleanup, admin playback states |
 | **11** | Advanced AI proctoring analysis — evidence aggregation, temporal correlation, explainable risk scoring, unified timeline, automated review summary |
+| **11.5** | Student dashboard wired to real MongoDB data (stats, activity, assessments) |
+| **12** | Coding execution security hardening — isolated runner limits, authz, hidden tests, compile/timeout handling, duplicate-run guards |
+
+## Phase 12 — Coding execution & security hardening
+
+Audited and hardened the existing Judge0/Piston pipeline (student code **never** runs in Next.js):
+
+- `src/lib/coding/runner.ts` — external sandbox only; `enable_network: false` (Judge0); HTTP timeouts; output clamping
+- `src/lib/coding/evaluate.ts` — weighted scoring; compile-error short-circuit; structured statuses
+- `src/lib/coding/security.ts` — source validation; sanitized student error messages
+- `src/lib/actions/coding.ts` — attempt ownership; visible vs hidden tests; run cooldown; upsert run drafts
+- Exam UI — separate Run/Submit in-flight guards
+
+Supported languages: `python`, `javascript`, `java`, `cpp` (pinned versions in `src/lib/coding/config.ts`).
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase12-coding.ts
+# Optional live sandbox:
+PHASE12_LIVE_RUNNER=1 npx tsx --env-file=.env.local scripts/verify-phase12-coding.ts
+```
+
+Production: deploy a **private** Judge0 or Piston instance; see `docs/CODE_RUNNER.md`.
 
 ## Phase 11 — Advanced AI proctoring
 
@@ -138,6 +160,8 @@ npx tsx --env-file=.env.local scripts/verify-phase3-grading.ts
 npx tsx --env-file=.env.local scripts/verify-exam-security.ts
 npx tsx --env-file=.env.local scripts/verify-phase10-proctoring.ts
 npx tsx --env-file=.env.local scripts/verify-phase11-ai-proctoring.ts
+npx tsx --env-file=.env.local scripts/verify-phase11-5-student-dashboard.ts
+npx tsx --env-file=.env.local scripts/verify-phase12-coding.ts
 ```
 
 See `docs/CODE_RUNNER.md` for code runner setup.
