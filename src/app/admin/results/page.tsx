@@ -5,3 +5,4 @@ export default async function AdminResultsPage() {
   await requirePageRole(["admin"]);
   return <AdminResultsClient />;
 }
+

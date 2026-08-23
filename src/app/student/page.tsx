@@ -62,6 +62,9 @@ export default async function StudentDashboardPage() {
 
   const { stats, upcoming, performanceTrend, activity } = dashboard;
 
+
+    console.log("Logged in User: ",session?.user);
+
   return (
     <div>
       <PageHeader

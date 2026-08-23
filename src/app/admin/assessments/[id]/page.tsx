@@ -36,6 +36,7 @@ export default async function AdminAssessmentDetailPage({
     notFound();
   }
 
+  
   const attached = await op.runMongo("fetch attached questions", () =>
     Question.find({ _id: { $in: doc.questionIds } }),
   );
