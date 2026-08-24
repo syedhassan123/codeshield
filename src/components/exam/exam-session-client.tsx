@@ -14,11 +14,14 @@ import {
 } from "@/lib/actions/exam";
 import { ExamCodingPanel } from "@/components/exam/exam-coding-panel";
 import { ExamSecurityBanner } from "@/components/exam/exam-security-banner";
+import { ProctoringHeadWarningOverlay } from "@/components/exam/proctoring-head-warning-overlay";
 import { useExamRecording } from "@/hooks/use-exam-recording";
 import { useExamSecurity } from "@/hooks/use-exam-security";
 import { useFaceDetection } from "@/hooks/use-face-detection";
 import { useHeadPoseMonitoring } from "@/hooks/use-head-pose-monitoring";
+import { useProctoringHeadWarningUx } from "@/hooks/use-proctoring-head-warning-ux";
 import { headDebugSecurityConfig } from "@/lib/face/head-pose-debug";
+import { unlockProctoringAlertAudio } from "@/lib/proctoring/alert-audio";
 import type {
   SerializedAnswer,
   SerializedAttempt,
@@ -156,6 +159,7 @@ export function ExamSessionClient({
     orientation: headOrientation,
     isMonitoring: headMonitoring,
     warning: headWarning,
+    warningTier: headWarningTier,
     error: headError,
   } = useHeadPoseMonitoring({
     attemptId: attempt.id,
@@ -167,6 +171,29 @@ export function ExamSessionClient({
     cameraActive,
     faceCount,
   });
+
+  const headWarningUx = useProctoringHeadWarningUx({
+    enabled:
+      security.requireHeadMonitoring &&
+      securityEnabled &&
+      attempt.status === "in_progress",
+    headStatus,
+    headOrientation,
+    headWarning,
+    warningTier: headWarningTier,
+    blockedByHigherPriority: Boolean(warning),
+  });
+
+  useEffect(() => {
+    if (attempt.status !== "in_progress") return;
+    const unlock = () => unlockProctoringAlertAudio();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, [attempt.status]);
 
   useEffect(() => {
     if (!security.requireCamera || attempt.status !== "in_progress") return;
@@ -431,6 +458,14 @@ export function ExamSessionClient({
         onDismiss={dismissWarning}
       />
 
+      <ProctoringHeadWarningOverlay
+        open={headWarningUx.visible}
+        title={headWarningUx.title}
+        body={headWarningUx.body}
+        support={headWarningUx.support}
+        level={headWarningUx.level}
+      />
+
       {security.requireCamera && (
         <div className="relative z-20 max-w-6xl mx-auto px-4 pt-2">
           <div className="flex flex-wrap items-center gap-3">
@@ -512,9 +547,6 @@ export function ExamSessionClient({
                             ? "Active"
                             : "Starting…"}
                 </p>
-              )}
-              {headWarning && (
-                <p className="text-amber-800 font-medium max-w-md">{headWarning}</p>
               )}
               {headError && (
                 <p className="text-muted-foreground font-medium max-w-md">

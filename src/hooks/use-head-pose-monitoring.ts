@@ -70,6 +70,7 @@ export function useHeadPoseMonitoring({
   const [status, setStatus] = useState<HeadMonitoringStatus>("inactive");
   const [orientation, setOrientation] = useState<HeadOrientation>("NORMAL");
   const [warning, setWarning] = useState("");
+  const [warningTier, setWarningTier] = useState<0 | 1 | 2>(0);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [error, setError] = useState("");
 
@@ -165,6 +166,7 @@ export function useHeadPoseMonitoring({
       headEventLoggedRef.current = false;
       prolongedLoggedRef.current = false;
       setWarning("");
+      setWarningTier(0);
       updateStatus("active");
     },
     [updateStatus],
@@ -202,6 +204,7 @@ export function useHeadPoseMonitoring({
       repeatedBurstRef.current = true;
       headLog("Repeated looking-away threshold reached", { episodeCount: count });
       setWarning("⚠️ Please remain focused on the screen during the exam.");
+      setWarningTier(2);
       await persistEvent("REPEATED_LOOKING_AWAY", {
         episodeCount: count,
         windowMs: HEAD_REPEATED_WINDOW_MS,
@@ -304,6 +307,7 @@ export function useHeadPoseMonitoring({
       } else {
         updateStatus("active");
         setWarning("");
+        setWarningTier(0);
       }
       return;
     }
@@ -330,6 +334,7 @@ export function useHeadPoseMonitoring({
       headEventLoggedRef.current = true;
       const eventType = orientationToEventType(direction);
       setWarning("⚠️ Please look at the screen to continue your exam.");
+      setWarningTier(1);
       headDebugMessage(`${direction} duration reached 20s`);
       headLog("Looking-away threshold reached", { durationMs, direction });
       await persistEvent(eventType, {
@@ -347,6 +352,7 @@ export function useHeadPoseMonitoring({
       !prolongedLoggedRef.current
     ) {
       prolongedLoggedRef.current = true;
+      setWarningTier(2);
       headDebugMessage(`${direction} duration reached 30s`);
       headLog("Prolonged looking-away threshold reached", { durationMs, direction });
       await persistEvent("PROLONGED_LOOKING_AWAY", {
@@ -377,6 +383,7 @@ export function useHeadPoseMonitoring({
     setIsMonitoring(false);
     updateStatus("inactive");
     setWarning("");
+    setWarningTier(0);
     setError("");
     episodeStartRef.current = null;
     episodeDirectionRef.current = null;
@@ -451,6 +458,7 @@ export function useHeadPoseMonitoring({
     orientation,
     isMonitoring,
     warning,
+    warningTier,
     error,
   };
 }
