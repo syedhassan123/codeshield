@@ -43,7 +43,7 @@ function sleep(ms: number) {
 /**
  * Camera preview + MediaRecorder during an active exam.
  * Does not start until enabled=true (session in progress).
- * Stop/upload only via finalizeAfterSubmit (after successful exam submit).
+ * Finalize via finalizeAfterSubmit during intentional exam submit.
  */
 export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
   const [cameraActive, setCameraActive] = useState(false);
@@ -64,6 +64,11 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
   const trackEndedHandlerRef = useRef<(() => void) | null>(null);
 
   enabledRef.current = enabled;
+
+  /** Call synchronously at submit click — blocks unmount cleanup from aborting upload. */
+  const armRecordingFinalize = useCallback(() => {
+    finalizeInProgressRef.current = true;
+  }, []);
 
   const report = useCallback(
     async (
@@ -279,7 +284,7 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
 
   /**
    * Stop recorder, upload blob, return success/failure.
-   * Call ONLY after successful exam submission.
+   * Must complete before navigation. Call armRecordingFinalize() at submit click first.
    */
   const finalizeAfterSubmit = useCallback(async () => {
     finalizeInProgressRef.current = true;
@@ -289,6 +294,9 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
     if (recorder && recorder.state !== "inactive") {
       await waitForRecorderStop(recorder);
     }
+
+    // Allow final dataavailable handlers to flush into chunksRef.
+    await sleep(50);
 
     const parts = chunksRef.current;
     const blob =
@@ -321,7 +329,10 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
       });
       await report("RECORDING_UPLOAD_FAILED", { reason: "empty_blob" });
       finalizeInProgressRef.current = false;
-      return { success: false as const };
+      return {
+        success: false as const,
+        error: "No recording data was captured.",
+      };
     }
 
     setRecordingStatus("uploading");
@@ -374,6 +385,7 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
     cameraWarning,
     recordingStatus,
     reconnect,
+    armRecordingFinalize,
     finalizeAfterSubmit,
   };
 }

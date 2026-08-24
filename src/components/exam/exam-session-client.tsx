@@ -87,6 +87,7 @@ export function ExamSessionClient({
   const [error, setError] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitPhase, setSubmitPhase] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [pending, startTransition] = useTransition();
   const [remainingMs, setRemainingMs] = useState(() => {
     const skew = Date.now() - new Date(serverNow).getTime();
@@ -123,6 +124,7 @@ export function ExamSessionClient({
     cameraWarning,
     recordingStatus,
     reconnect,
+    armRecordingFinalize,
     finalizeAfterSubmit,
   } = useExamRecording({
     attemptId: attempt.id,
@@ -169,10 +171,12 @@ export function ExamSessionClient({
   useEffect(() => {
     if (!security.requireCamera || attempt.status !== "in_progress") return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (isSubmitting) return;
       if (
         recordingStatus === "recording" ||
         recordingStatus === "initializing" ||
-        recordingStatus === "uploading"
+        recordingStatus === "uploading" ||
+        recordingStatus === "stopping"
       ) {
         event.preventDefault();
         event.returnValue = "";
@@ -180,7 +184,7 @@ export function ExamSessionClient({
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [security.requireCamera, attempt.status, recordingStatus]);
+  }, [security.requireCamera, attempt.status, recordingStatus, isSubmitting]);
 
   const recordingLabel = (() => {
     switch (recordingStatus) {
@@ -274,30 +278,58 @@ export function ExamSessionClient({
   };
 
   const submit = (forced = false) => {
-    if (autoSubmitted.current) return;
+    if (autoSubmitted.current || isSubmitting) return;
     autoSubmitted.current = true;
-    setSecurityEnabled(false);
-    setSubmitPhase("Submitting exam…");
-    startTransition(async () => {
-      const result = await submitExamAction(attempt.id);
-      if ("error" in result && result.error) {
-        setError(result.error);
+    setIsSubmitting(true);
+    setError("");
+    armRecordingFinalize();
+
+    void (async () => {
+      try {
+        if (security.requireCamera) {
+          setSubmitPhase("Finalizing camera recording…");
+          const recording = await finalizeAfterSubmit();
+          if (!recording.success) {
+            setError(
+              recording.error ||
+                "Exam recording could not be saved. Please try submitting again.",
+            );
+            autoSubmitted.current = false;
+            setSubmitPhase("");
+            setIsSubmitting(false);
+            return;
+          }
+        }
+
+        setSubmitPhase("Submitting exam…");
+        setSecurityEnabled(false);
+
+        const result = await submitExamAction(attempt.id);
+        if ("error" in result && result.error) {
+          setError(result.error);
+          autoSubmitted.current = false;
+          setSecurityEnabled(true);
+          setSubmitPhase("");
+          setIsSubmitting(false);
+          return;
+        }
+
+        if ("attempt" in result && result.attempt) {
+          setAttempt(result.attempt);
+        }
+
+        await exitFullscreenAfterSubmit();
+        setSubmitPhase("");
+        router.replace(`/student/exam/result/${attempt.id}`);
+      } catch {
+        setError("Submission failed. Please try again.");
         autoSubmitted.current = false;
         setSecurityEnabled(true);
         setSubmitPhase("");
-        return;
+        setIsSubmitting(false);
       }
-      // Exit fullscreen only after successful final submit (not autosave).
-      await exitFullscreenAfterSubmit();
+    })();
 
-      if (security.requireCamera) {
-        setSubmitPhase("Finalizing camera recording…");
-        await finalizeAfterSubmit();
-      }
-
-      setSubmitPhase("");
-      router.replace(`/student/exam/result/${attempt.id}`);
-    });
     if (!forced) setConfirmOpen(false);
   };
 
@@ -374,7 +406,7 @@ export function ExamSessionClient({
               size="sm"
               variant="outline"
               onClick={() => setConfirmOpen(true)}
-              disabled={pending}
+              disabled={pending || isSubmitting}
             >
               <Flag className="w-4 h-4" />
               Submit
@@ -633,7 +665,7 @@ export function ExamSessionClient({
                 <ChevronRight className="w-4 h-4" />
               </Button>
             ) : (
-              <Button onClick={() => setConfirmOpen(true)} disabled={pending}>
+              <Button onClick={() => setConfirmOpen(true)} disabled={pending || isSubmitting}>
                 Review & Submit
               </Button>
             )}
@@ -654,8 +686,13 @@ export function ExamSessionClient({
           <Button variant="outline" onClick={() => setConfirmOpen(false)}>
             Continue exam
           </Button>
-          <Button onClick={() => submit(false)} disabled={pending}>
-            {pending ? "Submitting…" : "Submit now"}
+          <Button
+            onClick={() => submit(false)}
+            disabled={pending || isSubmitting}
+          >
+            {isSubmitting
+              ? submitPhase || "Submitting…"
+              : "Submit now"}
           </Button>
         </div>
       </Modal>

@@ -42,6 +42,9 @@ export function waitForRecorderStop(recorder: MediaRecorder): Promise<void> {
     };
     recorder.addEventListener("stop", onStop);
     try {
+      if (recorder.state === "recording") {
+        recorder.requestData();
+      }
       recorder.stop();
     } catch {
       resolve();
