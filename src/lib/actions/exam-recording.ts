@@ -68,7 +68,7 @@ export async function beginExamRecordingAction(raw: unknown) {
     const existing = await ExamRecording.findOne({
       attemptId: attempt._id,
       userId: session.user.id,
-      status: { $in: ["RECORDING", "UPLOADING"] },
+      status: "RECORDING",
     }).sort({ createdAt: -1 });
 
     if (existing) {
@@ -90,19 +90,35 @@ export async function beginExamRecordingAction(raw: unknown) {
       mimeType: data.mimeType,
     });
 
-    const doc = await ExamRecording.create({
-      attemptId: attempt._id,
-      userId: attempt.studentId,
-      assessmentId: attempt.assessmentId,
-      storageKey,
-      storageProvider: storage.name,
-      mimeType: data.mimeType,
-      durationSeconds: 0,
-      fileSizeBytes: 0,
-      startedAt: new Date(),
-      endedAt: null,
-      status: "RECORDING",
-    });
+    let doc;
+    try {
+      doc = await ExamRecording.create({
+        attemptId: attempt._id,
+        userId: attempt.studentId,
+        assessmentId: attempt.assessmentId,
+        storageKey,
+        storageProvider: storage.name,
+        mimeType: data.mimeType,
+        durationSeconds: 0,
+        fileSizeBytes: 0,
+        startedAt: new Date(),
+        endedAt: null,
+        status: "RECORDING",
+      });
+    } catch (error) {
+      const raced = await ExamRecording.findOne({
+        attemptId: attempt._id,
+        userId: session.user.id,
+        status: "RECORDING",
+      }).sort({ createdAt: -1 });
+      if (!raced) throw error;
+      return {
+        success: true as const,
+        recordingId: raced._id.toString(),
+        storageProvider: raced.storageProvider,
+        reused: true as const,
+      };
+    }
 
     camLog([
       "Recording started",
@@ -142,7 +158,7 @@ export async function getActiveExamRecordingAction(attemptId: string) {
     const recording = await ExamRecording.findOne({
       attemptId: attempt._id,
       userId: session.user.id,
-      status: { $in: ["RECORDING", "UPLOADING"] },
+      status: "RECORDING",
     })
       .sort({ createdAt: -1 })
       .lean();
@@ -211,17 +227,42 @@ export async function uploadExamRecordingAction(formData: FormData) {
     }
 
     if (recording.status === "READY") {
-      return {
-        success: true as const,
-        recordingId: recording._id.toString(),
-        status: "READY" as const,
-      };
+      if (recording.fileSizeBytes > 0 && recording.endedAt) {
+        return {
+          success: true as const,
+          recordingId: recording._id.toString(),
+          status: "READY" as const,
+        };
+      }
     }
 
-    recording.status = "UPLOADING";
-    recording.endedAt = new Date();
-    recording.durationSeconds = parsed.data.durationSeconds;
-    await recording.save();
+    const claimed = await ExamRecording.findOneAndUpdate(
+      {
+        _id: recording._id,
+        userId: session.user.id,
+        status: { $in: ["RECORDING", "UPLOADING", "FAILED"] },
+      },
+      {
+        $set: {
+          status: "UPLOADING",
+          endedAt: new Date(),
+          durationSeconds: parsed.data.durationSeconds,
+        },
+      },
+      { returnDocument: "after" },
+    );
+
+    if (!claimed) {
+      const latest = await ExamRecording.findById(recording._id);
+      if (latest?.status === "READY" && latest.fileSizeBytes > 0) {
+        return {
+          success: true as const,
+          recordingId: latest._id.toString(),
+          status: "READY" as const,
+        };
+      }
+      throw new ActionError("Recording could not be finalized.");
+    }
 
     recLog([
       "Upload started",
@@ -232,35 +273,47 @@ export async function uploadExamRecordingAction(formData: FormData) {
     const storage = await getStorageProvider();
     const buffer = Buffer.from(await file.arrayBuffer());
 
+    if (buffer.length <= 0) {
+      claimed.status = "FAILED";
+      claimed.errorMessage = "Empty recording";
+      claimed.endedAt = claimed.endedAt || new Date();
+      await claimed.save();
+      return {
+        success: false as const,
+        error: "Recording file missing.",
+        status: "FAILED" as const,
+      };
+    }
+
     try {
       await storage.putObject({
-        key: recording.storageKey,
+        key: claimed.storageKey,
         body: buffer,
-        contentType: recording.mimeType || file.type || "video/webm",
+        contentType: claimed.mimeType || file.type || "video/webm",
       });
-      recording.fileSizeBytes = buffer.length;
-      recording.status = "READY";
-      recording.errorMessage = "";
-      await recording.save();
+      claimed.fileSizeBytes = buffer.length;
+      claimed.endedAt = claimed.endedAt || new Date();
+      claimed.status = "READY";
+      claimed.errorMessage = "";
+      await claimed.save();
 
       recLog([
         "Upload successful",
         `attemptId=${maskId(parsed.data.attemptId)}`,
-        `recordingId=${maskId(recording._id.toString())}`,
+        `recordingId=${maskId(claimed._id.toString())}`,
       ]);
-      op.success({ recordingId: recording._id.toString(), status: "READY" });
+      op.success({ recordingId: claimed._id.toString(), status: "READY" });
       return {
         success: true as const,
-        recordingId: recording._id.toString(),
+        recordingId: claimed._id.toString(),
         status: "READY" as const,
       };
     } catch (uploadError) {
-      recording.status = "FAILED";
-      recording.errorMessage =
-        uploadError instanceof Error
-          ? uploadError.message
-          : "Upload failed";
-      await recording.save();
+      claimed.status = "FAILED";
+      claimed.endedAt = claimed.endedAt || new Date();
+      claimed.errorMessage =
+        uploadError instanceof Error ? "Recording upload failed." : "Upload failed";
+      await claimed.save();
       recLog([
         "Upload failed",
         `attemptId=${maskId(parsed.data.attemptId)}`,

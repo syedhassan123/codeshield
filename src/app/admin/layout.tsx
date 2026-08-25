@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { requirePageRole } from "@/lib/safe-auth";
 import type { NavItemConfig } from "@/components/layout/nav-icons";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
 
@@ -20,7 +20,7 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  const session = await requirePageRole(["admin"]);
   return (
     <WorkspaceShell
       role="admin"

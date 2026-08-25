@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -91,7 +91,6 @@ export function ExamSessionClient({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitPhase, setSubmitPhase] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [pending, startTransition] = useTransition();
   const [remainingMs, setRemainingMs] = useState(() => {
     const skew = Date.now() - new Date(serverNow).getTime();
     return new Date(initialAttempt.expiresAt).getTime() - (Date.now() - skew);
@@ -99,6 +98,9 @@ export function ExamSessionClient({
   const skewRef = useRef(Date.now() - new Date(serverNow).getTime());
   const autoSubmitted = useRef(false);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingSaves = useRef<AnswerMap>({});
+  const inflightSaves = useRef<Promise<void>[]>([]);
+  const codingFlushRef = useRef<(() => Promise<boolean>) | null>(null);
   const [securityEnabled, setSecurityEnabled] = useState(true);
   const [cameraDeviceId] = useState(() => {
     try {
@@ -261,14 +263,17 @@ export function ExamSessionClient({
     if (saveTimers.current[questionId]) {
       clearTimeout(saveTimers.current[questionId]);
     }
+    pendingSaves.current[questionId] = next;
     setSaveState("saving");
     saveTimers.current[questionId] = setTimeout(() => {
-      startTransition(async () => {
+      const payload = pendingSaves.current[questionId];
+      if (!payload) return;
+      const task = (async () => {
         const result = await saveAnswerAction({
           attemptId: attempt.id,
           questionId,
-          selectedOptionKey: next.selectedOptionKey,
-          textAnswer: next.textAnswer,
+          selectedOptionKey: payload.selectedOptionKey,
+          textAnswer: payload.textAnswer,
         });
         if ("error" in result && result.error) {
           setSaveState("error");
@@ -281,6 +286,7 @@ export function ExamSessionClient({
           }
           return;
         }
+        delete pendingSaves.current[questionId];
         if ("attempt" in result && result.attempt) {
           setAttempt(result.attempt);
         }
@@ -289,8 +295,38 @@ export function ExamSessionClient({
         }
         setSaveState("saved");
         setError("");
+      })();
+      inflightSaves.current.push(task);
+      void task.finally(() => {
+        inflightSaves.current = inflightSaves.current.filter((p) => p !== task);
       });
     }, 400);
+  };
+
+  const flushPendingSaves = async () => {
+    for (const [questionId, timer] of Object.entries(saveTimers.current)) {
+      clearTimeout(timer);
+      delete saveTimers.current[questionId];
+    }
+    const pending = { ...pendingSaves.current };
+    const flushTasks = Object.entries(pending).map(async ([questionId, payload]) => {
+      const result = await saveAnswerAction({
+        attemptId: attempt.id,
+        questionId,
+        selectedOptionKey: payload.selectedOptionKey,
+        textAnswer: payload.textAnswer,
+      });
+      if (!("error" in result && result.error)) {
+        delete pendingSaves.current[questionId];
+        if ("attempt" in result && result.attempt) {
+          setAttempt(result.attempt);
+        }
+        if ("serverNow" in result && result.serverNow) {
+          skewRef.current = Date.now() - new Date(result.serverNow).getTime();
+        }
+      }
+    });
+    await Promise.all([...inflightSaves.current, ...flushTasks]);
   };
 
   const updateAnswer = (patch: Partial<AnswerMap[string]>) => {
@@ -313,19 +349,15 @@ export function ExamSessionClient({
 
     void (async () => {
       try {
+        setSubmitPhase("Saving answers…");
+        await flushPendingSaves();
+        if (codingFlushRef.current) {
+          await codingFlushRef.current();
+        }
+
         if (security.requireCamera) {
           setSubmitPhase("Finalizing camera recording…");
-          const recording = await finalizeAfterSubmit();
-          if (!recording.success) {
-            setError(
-              recording.error ||
-                "Exam recording could not be saved. Please try submitting again.",
-            );
-            autoSubmitted.current = false;
-            setSubmitPhase("");
-            setIsSubmitting(false);
-            return;
-          }
+          await finalizeAfterSubmit();
         }
 
         setSubmitPhase("Submitting exam…");
@@ -433,7 +465,7 @@ export function ExamSessionClient({
               size="sm"
               variant="outline"
               onClick={() => setConfirmOpen(true)}
-              disabled={pending || isSubmitting}
+              disabled={isSubmitting}
             >
               <Flag className="w-4 h-4" />
               Submit
@@ -664,6 +696,9 @@ export function ExamSessionClient({
               question={current}
               initialLanguage={answers[current.id]?.selectedOptionKey ?? ""}
               initialSourceCode={answers[current.id]?.textAnswer ?? ""}
+              bindFlush={(flush) => {
+                codingFlushRef.current = flush;
+              }}
               onDraftChange={(patch) => {
                 setAnswers((map) => ({ ...map, [current.id]: patch }));
               }}
@@ -697,7 +732,7 @@ export function ExamSessionClient({
                 <ChevronRight className="w-4 h-4" />
               </Button>
             ) : (
-              <Button onClick={() => setConfirmOpen(true)} disabled={pending || isSubmitting}>
+              <Button onClick={() => setConfirmOpen(true)} disabled={isSubmitting}>
                 Review & Submit
               </Button>
             )}
@@ -720,7 +755,7 @@ export function ExamSessionClient({
           </Button>
           <Button
             onClick={() => submit(false)}
-            disabled={pending || isSubmitting}
+            disabled={isSubmitting}
           >
             {isSubmitting
               ? submitPhase || "Submitting…"

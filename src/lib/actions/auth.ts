@@ -22,7 +22,7 @@ import {
   verifyRegistrationOtpByEmail,
 } from "@/lib/otp/service";
 import { User } from "@/models/User";
-import { USER_ROLES, type UserRole } from "@/types/user";
+import type { UserRole } from "@/types/user";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -33,7 +33,6 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   name: z.string().min(2),
-  role: z.enum(USER_ROLES).default("student"),
 });
 
 const registrationOtpSchema = z.object({
@@ -112,7 +111,6 @@ export async function loginAction(
     await signIn("credentials", {
       email: parsed.data.email,
       password: parsed.data.password,
-      skipVerification: "false",
       redirectTo,
     });
   } catch (error) {
@@ -141,7 +139,6 @@ export async function registerAction(
     email: formData.get("email"),
     password: formData.get("password"),
     name: formData.get("name") || String(formData.get("email")).split("@")[0],
-    role: formData.get("role") || "student",
   });
 
   if (!parsed.success) {
@@ -152,7 +149,7 @@ export async function registerAction(
   flowLog("REGISTER", "Account creation started");
   debugLog("AUTH", "register_action_start", {
     email: maskEmail(parsed.data.email),
-    role: parsed.data.role.toUpperCase(),
+    role: "STUDENT",
   });
 
   try {
@@ -173,7 +170,7 @@ export async function registerAction(
         email: parsed.data.email.toLowerCase(),
         passwordHash,
         name: parsed.data.name,
-        role: parsed.data.role,
+        role: "student",
         status: "active",
         emailVerified: false,
         avatar: parsed.data.name
@@ -213,6 +210,15 @@ export async function demoLoginAction(role: UserRole) {
   });
   debugLog("AUTH", "demo_login", { role: role.toUpperCase() });
 
+  const allowDemo =
+    process.env.ALLOW_DEMO_LOGIN === "true" ||
+    (process.env.NODE_ENV !== "production" &&
+      process.env.ALLOW_DEMO_LOGIN !== "false");
+  if (!allowDemo) {
+    op.fail("demo login disabled");
+    throw new ActionError("Demo login is disabled.");
+  }
+
   const demos: Record<UserRole, { email: string; password: string }> = {
     admin: { email: "admin@codeshield.ai", password: "password123" },
     student: { email: "rohan@codeshield.edu", password: "password123" },
@@ -221,10 +227,14 @@ export async function demoLoginAction(role: UserRole) {
 
   const creds = demos[role];
   try {
+    await connectDB();
+    await User.findOneAndUpdate(
+      { email: creds.email },
+      { $set: { emailVerified: true } },
+    );
     await signIn("credentials", {
       email: creds.email,
       password: creds.password,
-      skipVerification: "true",
       redirectTo: homeForRole(role),
     });
   } catch (error) {

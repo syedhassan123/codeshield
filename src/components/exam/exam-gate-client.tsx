@@ -62,10 +62,6 @@ export function ExamGateClient({
     setError("");
     requestFullscreenIfNeeded();
     startTransition(async () => {
-      if (activeAttemptId) {
-        navigateToSession(activeAttemptId, deviceId);
-        return;
-      }
       const result = await startExamAction(assessment.id);
       if ("error" in result && result.error) {
         setError(result.error);

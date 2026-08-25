@@ -34,6 +34,12 @@ function main() {
     sessionSrc.indexOf("useEffect(() => {", sessionSrc.indexOf("const submit =")),
   );
   assert(
+    submitBlock.includes("flushPendingSaves") &&
+      submitBlock.indexOf("flushPendingSaves") <
+        submitBlock.indexOf("submitExamAction"),
+    "pending answers flush before exam submit",
+  );
+  assert(
     submitBlock.includes("finalizeAfterSubmit") &&
       submitBlock.includes("submitExamAction") &&
       submitBlock.indexOf("finalizeAfterSubmit") <
@@ -47,8 +53,8 @@ function main() {
     "security/recording hook disabled only after recording finalize",
   );
   assert(
-    submitBlock.includes("!recording.success"),
-    "submit blocks when recording finalize fails",
+    !submitBlock.includes("!recording.success"),
+    "recording finalize failure does not abort exam submit",
   );
   assert(
     submitBlock.includes("router.replace") &&
@@ -78,10 +84,9 @@ function main() {
 
   const actionSrc = read("src/lib/actions/exam-recording.ts");
   assert(
-    actionSrc.includes('recording.status = "UPLOADING"') &&
-      actionSrc.includes("recording.endedAt = new Date()") &&
-      actionSrc.includes('recording.status = "READY"'),
-    "upload action transitions RECORDING → UPLOADING → READY",
+    actionSrc.includes('status: { $in: ["RECORDING", "UPLOADING", "FAILED"] }') &&
+      actionSrc.includes('status: "READY"'),
+    "upload action claims RECORDING/UPLOADING/FAILED then READY",
   );
   assert(
     actionSrc.includes('recording.status === "READY"'),

@@ -2,7 +2,7 @@
 
 import mongoose from "mongoose";
 import { revalidatePath } from "next/cache";
-import { ZodError, z } from "zod";
+import { z } from "zod";
 import { ActionError, requireStudent } from "@/lib/auth-guards";
 import { connectDB } from "@/lib/db";
 import { createServerOp, debugLog, maskId } from "@/lib/debug";
@@ -25,15 +25,6 @@ import { CodingSubmission } from "@/models/CodingSubmission";
 import { Question } from "@/models/Question";
 import { Result } from "@/models/Result";
 import { normalizeAssessmentSecurity } from "@/types/assessment-security";
-
-function toError(error: unknown) {
-  if (error instanceof ActionError) return { error: error.message };
-  if (error instanceof ZodError) {
-    return { error: error.issues[0]?.message || "Invalid input." };
-  }
-  if (error instanceof Error) return { error: error.message };
-  return { error: "Something went wrong." };
-}
 
 const saveAnswerSchema = z.object({
   attemptId: z.string().min(1),
@@ -220,6 +211,10 @@ export async function loadExamSessionAction(attemptId: string) {
       questions: ordered,
       answers: answers.map(serializeAnswer),
       serverNow: new Date().toISOString(),
+      remainingMs: Math.max(
+        0,
+        new Date(attempt.expiresAt).getTime() - Date.now(),
+      ),
       security,
     });
   } catch (error) {
@@ -370,6 +365,11 @@ export async function submitExamAction(attemptId: string) {
         attempt,
         expired ? "expired" : "submitted",
       );
+    } else if (!attempt.resultId) {
+      attempt = await finalizeAttempt(
+        attempt,
+        attempt.status === "expired" ? "expired" : "submitted",
+      );
     }
 
     const result = await op.runMongo("load result", () =>
@@ -382,6 +382,8 @@ export async function submitExamAction(attemptId: string) {
     debugLog("EXAM", "SUBMIT", {
       attemptId: maskId(attemptId),
       status: attempt.status,
+      resultId: maskId(result._id.toString()),
+      reason: result.finalizedReason,
     });
 
     revalidatePath("/student/results");
@@ -421,9 +423,19 @@ export async function getExamResultAction(attemptId: string) {
       throw new ActionError("Exam is still in progress.");
     }
 
-    const result = await op.runMongo("load result document", () =>
+    let result = await op.runMongo("load result document", () =>
       Result.findOne({ attemptId: attempt._id, studentId: session.user.id }),
     );
+    if (!result) {
+      attempt = await finalizeAttempt(
+        attempt,
+        attempt.status === "expired" ? "expired" : "submitted",
+      );
+      result = await Result.findOne({
+        attemptId: attempt._id,
+        studentId: session.user.id,
+      });
+    }
     if (!result) {
       throw new ActionError("Result not found.");
     }

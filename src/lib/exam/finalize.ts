@@ -3,6 +3,7 @@ import { ActionError } from "@/lib/auth-guards";
 import { evaluateAgainstTests } from "@/lib/coding/evaluate";
 import { debugLog, logAuthorization, maskId } from "@/lib/debug";
 import { recalculateResultScores } from "@/lib/exam/score";
+import { abandonIncompleteRecordings } from "@/lib/exam/recording-finalize";
 import { Answer } from "@/models/Answer";
 import type { AttemptDocument } from "@/models/Attempt";
 import { Attempt } from "@/models/Attempt";
@@ -147,26 +148,64 @@ async function resolveCodingScore(options: {
   };
 }
 
+/** Close overdue in-progress attempts (admin monitoring / lazy expiry). */
+export async function expireOverdueInProgressAttempts(limit = 40) {
+  const overdue = await Attempt.find({
+    status: "in_progress",
+    expiresAt: { $lte: new Date() },
+  })
+    .sort({ expiresAt: 1 })
+    .limit(limit);
+
+  for (const attempt of overdue) {
+    await finalizeAttempt(attempt, "expired");
+  }
+
+  return overdue.length;
+}
+
 export async function finalizeAttempt(
   attempt: AttemptDocument,
   reason: "submitted" | "expired",
 ): Promise<AttemptDocument> {
-  if (attempt.status !== "in_progress") {
-    return attempt;
+  const terminalStatus = reason === "expired" ? "expired" : "submitted";
+  const submittedAt = new Date();
+
+  let live = attempt;
+
+  if (attempt.status === "in_progress") {
+    const claimed = await Attempt.findOneAndUpdate(
+      { _id: attempt._id, status: "in_progress" },
+      { $set: { status: terminalStatus, submittedAt } },
+      { returnDocument: "after" },
+    );
+    if (!claimed) {
+      live = (await Attempt.findById(attempt._id))!;
+    } else {
+      live = claimed;
+      debugLog("EXAM", "FINALIZE_CLAIMED", {
+        attemptId: attempt._id.toString().slice(0, 8),
+        reason,
+      });
+    }
   }
 
-  const answers = await Answer.find({ attemptId: attempt._id });
+  if (live.resultId) {
+    return live;
+  }
+
+  const answers = await Answer.find({ attemptId: live._id });
   const answerByQuestion = new Map(
     answers.map((a) => [a.questionId.toString(), a]),
   );
 
   const questions = await Question.find({
-    _id: { $in: attempt.questionIds },
+    _id: { $in: live.questionIds },
   });
   const questionById = new Map(questions.map((q) => [q._id.toString(), q]));
 
   const resultQuestions = [];
-  for (const qid of attempt.questionIds ?? []) {
+  for (const qid of live.questionIds ?? []) {
     const id = qid.toString();
     const question = questionById.get(id);
     const answer = answerByQuestion.get(id);
@@ -209,9 +248,9 @@ export async function finalizeAttempt(
 
     if (type === "coding" && question) {
       const coding = await resolveCodingScore({
-        attemptId: attempt._id,
-        studentId: attempt.studentId,
-        assessmentId: attempt.assessmentId,
+        attemptId: live._id,
+        studentId: live.studentId,
+        assessmentId: live.assessmentId,
         question,
         textAnswer,
         languageHint: selectedOptionKey,
@@ -264,50 +303,47 @@ export async function finalizeAttempt(
   }
 
   const scores = recalculateResultScores(resultQuestions);
-  const submittedAt = new Date();
 
   const result = await Result.findOneAndUpdate(
-    { attemptId: attempt._id },
+    { attemptId: live._id },
     {
       $setOnInsert: {
-        attemptId: attempt._id,
-        studentId: attempt.studentId,
-        assessmentId: attempt.assessmentId,
+        attemptId: live._id,
+        studentId: live.studentId,
+        assessmentId: live.assessmentId,
       },
       $set: {
-        assessmentTitle: attempt.assessmentTitle,
+        assessmentTitle: live.assessmentTitle,
         ...scores,
         questions: resultQuestions,
-        submittedAt,
+        submittedAt: live.submittedAt || submittedAt,
         finalizedReason: reason,
         evaluationCompletedAt:
-          scores.evaluationStatus === "completed" ? submittedAt : null,
+          scores.evaluationStatus === "completed"
+            ? live.submittedAt || submittedAt
+            : null,
       },
     },
     { upsert: true, returnDocument: "after" },
   );
 
-  const updated = await Attempt.findOneAndUpdate(
-    { _id: attempt._id, status: "in_progress" },
-    {
-      $set: {
-        status: reason === "expired" ? "expired" : "submitted",
-        submittedAt,
-        resultId: result._id,
-      },
-    },
+  const updated = await Attempt.findByIdAndUpdate(
+    live._id,
+    { $set: { resultId: result._id } },
     { returnDocument: "after" },
   );
 
+  const abandoned = await abandonIncompleteRecordings(live._id);
   debugLog("RESULT", "CREATED", {
-    attemptId: attempt._id.toString().slice(0, 8),
+    attemptId: live._id.toString().slice(0, 8),
     reason,
     objectiveScore: scores.objectiveScore,
     codingScore: scores.codingScore,
     evaluationStatus: scores.evaluationStatus.toUpperCase(),
+    recordingsAbandoned: abandoned,
   });
 
-  return updated ?? (await Attempt.findById(attempt._id))!;
+  return updated ?? (await Attempt.findById(live._id))!;
 }
 
 export async function getOwnedAttempt(
@@ -331,7 +367,7 @@ export async function getOwnedAttempt(
       role: "STUDENT",
       reason: "NOT_OWNER",
     });
-    throw new ActionError("You cannot access this attempt.");
+    throw new ActionError("Attempt not found.");
   }
 
   logAuthorization({

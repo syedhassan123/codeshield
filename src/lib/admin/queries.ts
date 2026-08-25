@@ -2,6 +2,7 @@ import {
   buildSecuritySummary,
   securityRiskLevelFromTotal,
 } from "@/lib/exam/security";
+import { expireOverdueInProgressAttempts } from "@/lib/exam/finalize";
 import { countViolations, formatPercent } from "@/lib/admin/format";
 import { Assessment } from "@/models/Assessment";
 import { Attempt } from "@/models/Attempt";
@@ -103,7 +104,10 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
   ] = await Promise.all([
     User.countDocuments({ role: "student" }),
     Assessment.countDocuments({ status: { $in: ["published", "scheduled"] } }),
-    Attempt.countDocuments({ status: "in_progress" }),
+    Attempt.countDocuments({
+      status: "in_progress",
+      expiresAt: { $gt: new Date() },
+    }),
     Attempt.countDocuments({ status: { $in: ["submitted", "expired"] } }),
     Result.countDocuments({ evaluationStatus: "pending" }),
     Result.countDocuments({ evaluationStatus: "completed" }),
@@ -231,7 +235,10 @@ export async function getCodingLanguageChart(): Promise<ChartPoint[]> {
 }
 
 export async function getSecurityStatusChart(): Promise<SecuritySegment[]> {
-  const activeAttempts = await Attempt.find({ status: "in_progress" })
+  const activeAttempts = await Attempt.find({
+    status: "in_progress",
+    expiresAt: { $gt: new Date() },
+  })
     .select("_id")
     .limit(200);
 
@@ -370,6 +377,8 @@ function monitoringStatusFromRisk(
 }
 
 export async function getActiveMonitoringSessions(limit = 12) {
+  await expireOverdueInProgressAttempts(5);
+
   const attempts = await Attempt.find({ status: "in_progress" })
     .sort({ startedAt: -1 })
     .limit(limit);
@@ -713,7 +722,10 @@ export async function listAdminReports(options: {
 export async function getMonitoringSystemHealth() {
   const [activeAttempts, recordingEvents, violationEvents, cameraDenied] =
     await Promise.all([
-      Attempt.countDocuments({ status: "in_progress" }),
+      Attempt.countDocuments({
+      status: "in_progress",
+      expiresAt: { $gt: new Date() },
+    }),
       SecurityEvent.countDocuments({
         eventType: "RECORDING_STARTED",
         timestamp: { $gte: daysAgo(1) },

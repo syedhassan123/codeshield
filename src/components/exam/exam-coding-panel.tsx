@@ -39,6 +39,7 @@ type Props = {
     selectedOptionKey: string;
     textAnswer: string;
   }) => void;
+  bindFlush?: (flush: () => Promise<boolean>) => void;
   disabled?: boolean;
 };
 
@@ -57,6 +58,7 @@ export function ExamCodingPanel({
   initialLanguage,
   initialSourceCode,
   onDraftChange,
+  bindFlush,
   disabled,
 }: Props) {
   const languages = useMemo(
@@ -111,7 +113,11 @@ export function ExamCodingPanel({
   const latestRef = useRef({ lang: activeLang, code: sourceCode });
   const runInflight = useRef(false);
   const submitInflight = useRef(false);
+  const dirtyRef = useRef(false);
+  const finalizedRef = useRef(false);
   latestRef.current = { lang: activeLang, code: sourceCode };
+  dirtyRef.current = dirty;
+  finalizedRef.current = finalized;
 
   // Reset local editor state only when the question changes — never on each keystroke.
   useEffect(() => {
@@ -165,8 +171,39 @@ export function ExamCodingPanel({
   useEffect(() => {
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+      if (!dirtyRef.current || finalizedRef.current) return;
+      const { lang, code } = latestRef.current;
+      void saveAnswerAction({
+        attemptId,
+        questionId: question.id,
+        selectedOptionKey: lang,
+        textAnswer: code,
+      });
     };
-  }, []);
+  }, [attemptId, question.id]);
+
+  useEffect(() => {
+    if (!bindFlush) return;
+    bindFlush(async () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+      const started = Date.now();
+      while (submitInflight.current && Date.now() - started < 8000) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (finalizedRef.current) return true;
+      const { lang, code } = latestRef.current;
+      if (!code.trim()) return true;
+      const result = await saveAnswerAction({
+        attemptId,
+        questionId: question.id,
+        selectedOptionKey: lang,
+        textAnswer: code,
+      });
+      if ("error" in result && result.error) return false;
+      dirtyRef.current = false;
+      return true;
+    });
+  }, [attemptId, question.id, bindFlush]);
 
   const persistDraft = async (lang: CodingLanguage, code: string) => {
     setSaveBusy(true);

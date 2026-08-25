@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { requirePageRole } from "@/lib/safe-auth";
 import type { NavItemConfig } from "@/components/layout/nav-icons";
 import { RoleLayoutClient } from "@/components/layout/role-layout-client";
 
@@ -17,7 +17,7 @@ export default async function StudentLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  const session = await requirePageRole(["student"]);
   return (
     <RoleLayoutClient
       role="student"

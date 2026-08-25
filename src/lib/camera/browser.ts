@@ -33,13 +33,22 @@ export function pickSupportedRecorderMimeType(): string {
   return "";
 }
 
-export function waitForRecorderStop(recorder: MediaRecorder): Promise<void> {
+export function waitForRecorderStop(
+  recorder: MediaRecorder,
+  timeoutMs = 8000,
+): Promise<void> {
   if (recorder.state === "inactive") return Promise.resolve();
   return new Promise((resolve) => {
-    const onStop = () => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
       recorder.removeEventListener("stop", onStop);
+      clearTimeout(timer);
       resolve();
     };
+    const onStop = () => finish();
+    const timer = setTimeout(finish, timeoutMs);
     recorder.addEventListener("stop", onStop);
     try {
       if (recorder.state === "recording") {
@@ -47,7 +56,7 @@ export function waitForRecorderStop(recorder: MediaRecorder): Promise<void> {
       }
       recorder.stop();
     } catch {
-      resolve();
+      finish();
     }
   });
 }

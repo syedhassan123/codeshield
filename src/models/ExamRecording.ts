@@ -7,7 +7,6 @@ const ExamRecordingSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "Attempt",
       required: true,
-      index: true,
     },
     userId: {
       type: Schema.Types.ObjectId,
@@ -72,6 +71,7 @@ ExamRecordingSchema.index(
   { attemptId: 1 },
   {
     unique: true,
+    name: "attemptId_active_recording_unique",
     partialFilterExpression: { status: "RECORDING" },
   },
 );

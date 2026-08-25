@@ -90,6 +90,26 @@ export function maskId(id?: string | null) {
   return `${id.slice(0, 4)}…${id.slice(-4)}`;
 }
 
+/** User-facing errors only — never leak Mongo/AWS/Judge0/stack internals. */
+export function clientSafeErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error instanceof Error && error.name === "ActionError") {
+    return error.message;
+  }
+  if (
+    error &&
+    typeof error === "object" &&
+    "issues" in error &&
+    Array.isArray((error as { issues: Array<{ message?: string }> }).issues)
+  ) {
+    return (
+      (error as { issues: Array<{ message?: string }> }).issues[0]?.message ||
+      "Invalid input."
+    );
+  }
+  return "Something went wrong.";
+}
+
 function newRequestId() {
   return `req_${randomBytes(3).toString("hex")}`;
 }
@@ -544,12 +564,7 @@ export function createServerOp(options: {
      * Log an error response body and return it (for action `{ error }` returns).
      */
     respondError(error: unknown, status = 400): { error: string } {
-      const message =
-        typeof error === "string"
-          ? error
-          : error instanceof Error
-            ? error.message
-            : "Something went wrong.";
+      const message = clientSafeErrorMessage(error);
       const body = { success: false as const, error: message };
       debugError(`${domain}_${operation}_FAILED`, error, {
         resourceId: resourceId ? maskId(resourceId) : undefined,

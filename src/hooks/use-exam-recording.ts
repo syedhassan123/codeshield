@@ -61,6 +61,7 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
   const enabledRef = useRef(enabled);
   const startingRef = useRef(false);
   const finalizeInProgressRef = useRef(false);
+  const readyRef = useRef(false);
   const trackEndedHandlerRef = useRef<(() => void) | null>(null);
 
   enabledRef.current = enabled;
@@ -191,7 +192,9 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
       chunksRef.current = [];
 
       const active = await getActiveExamRecordingAction(attemptId);
+      let reused = false;
       if (active.success && active.recording) {
+        reused = true;
         recordingIdRef.current = active.recording.id;
         mimeTypeRef.current = active.recording.mimeType || mimeType;
       } else {
@@ -205,6 +208,7 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
           return;
         }
         recordingIdRef.current = begin.recordingId;
+        reused = Boolean("reused" in begin && begin.reused);
       }
 
       if (!recordingIdRef.current) {
@@ -221,7 +225,9 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
       if (!startedAtRef.current) {
         startedAtRef.current = Date.now();
       }
-      await report("RECORDING_STARTED");
+      if (!reused) {
+        await report("RECORDING_STARTED");
+      }
     } catch (err) {
       const classified = classifyCameraError(err);
       setCameraWarning(classified.message);
@@ -287,6 +293,9 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
    * Must complete before navigation. Call armRecordingFinalize() at submit click first.
    */
   const finalizeAfterSubmit = useCallback(async () => {
+    if (readyRef.current) {
+      return { success: true as const };
+    }
     finalizeInProgressRef.current = true;
     setRecordingStatus("stopping");
     const recorder = recorderRef.current;
@@ -295,8 +304,7 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
       await waitForRecorderStop(recorder);
     }
 
-    // Allow final dataavailable handlers to flush into chunksRef.
-    await sleep(50);
+    await Promise.resolve();
 
     const parts = chunksRef.current;
     const blob =
@@ -354,6 +362,7 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
       return { success: false as const, error: uploaded.error };
     }
     setRecordingStatus("ready");
+    readyRef.current = true;
     finalizeInProgressRef.current = false;
     return { success: true as const };
   }, [attemptId, detachTrackEndedHandler, report, uploadWithRetry]);

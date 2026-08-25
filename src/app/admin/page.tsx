@@ -6,8 +6,10 @@ import {
   LanguageBarChart,
   SecurityDonut,
 } from "@/components/charts/simple-charts";
+import { DashboardSection } from "@/components/ui/dashboard-section";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import {
   getAdminDashboardStats,
@@ -27,6 +29,20 @@ import {
   serializeAssessment,
 } from "@/lib/serializers";
 import { Assessment } from "@/models/Assessment";
+import { cn } from "@/lib/utils";
+
+function assessmentStatusVariant(status: string) {
+  switch (status) {
+    case "published":
+      return "success" as const;
+    case "draft":
+      return "muted" as const;
+    case "scheduled":
+      return "primary" as const;
+    default:
+      return "default" as const;
+  }
+}
 
 export default async function AdminDashboardPage() {
   const session = await requirePageRole(["admin"]);
@@ -86,12 +102,12 @@ export default async function AdminDashboardPage() {
   }
 
   return (
-    <div>
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         title={`Welcome back, ${session.user.name?.split(" ").slice(0, 2).join(" ") || firstName} 👋`}
         description="Here's what's happening across CodeShield today."
         actions={
-          <Button asChild size="sm">
+          <Button asChild size="sm" className="shadow-soft">
             <Link href="/admin/assessments">
               <Plus className="w-4 h-4" /> New Assessment
             </Link>
@@ -99,119 +115,210 @@ export default async function AdminDashboardPage() {
         }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Total Students" value={stats.totalStudents.toLocaleString()} />
-        <StatCard label="Active Assessments" value={stats.activeAssessments.toLocaleString()} />
-        <StatCard label="Pending Evaluations" value={stats.pendingEvaluations.toLocaleString()} />
-        <StatCard label="Security Events (24h)" value={stats.securityEvents24h.toLocaleString()} />
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Completed Attempts" value={stats.completedAttempts.toLocaleString()} />
-        <StatCard label="Evaluations Completed" value={stats.completedEvaluations.toLocaleString()} />
-        <StatCard label="Violation Events" value={stats.violationEvents.toLocaleString()} tone="warning" />
-        <StatCard label="System Status" value={stats.systemStatus} tone="success" />
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-5 mb-6">
-        <div className="card-soft p-5 lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-display font-bold">Assessment Activity</h3>
-            <span className="text-xs text-muted-foreground">Last 7 days</span>
-          </div>
-          <ActivityAreaChart data={activityData} />
-        </div>
-        <div className="card-soft p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-display font-bold">Security Status</h3>
-            <span className="text-xs font-semibold text-success">Live</span>
-          </div>
-          <SecurityDonut segments={securitySegments} />
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-0.5">
+          Operations overview
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <StatCard
+            label="Total Students"
+            value={stats.totalStudents.toLocaleString()}
+            emphasis
+          />
+          <StatCard
+            label="Active Assessments"
+            value={stats.activeAssessments.toLocaleString()}
+            emphasis
+          />
+          <StatCard
+            label="Pending Evaluations"
+            value={stats.pendingEvaluations.toLocaleString()}
+            emphasis
+          />
+          <StatCard
+            label="Security Events (24h)"
+            value={stats.securityEvents24h.toLocaleString()}
+            emphasis
+          />
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-5 mb-6">
-        <div className="card-soft p-5 lg:col-span-2">
-          <h3 className="font-display font-bold mb-4">User Growth</h3>
-          <GrowthBarChart data={growthData} />
-        </div>
-        <div className="card-soft p-5">
-          <h3 className="font-display font-bold mb-4">Coding Languages</h3>
-          <LanguageBarChart data={languageData} />
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-0.5">
+          Platform metrics
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <StatCard
+            label="Completed Attempts"
+            value={stats.completedAttempts.toLocaleString()}
+          />
+          <StatCard
+            label="Evaluations Completed"
+            value={stats.completedEvaluations.toLocaleString()}
+          />
+          <StatCard
+            label="Violation Events"
+            value={stats.violationEvents.toLocaleString()}
+            tone="warning"
+          />
+          <StatCard
+            label="System Status"
+            value={stats.systemStatus}
+            tone="success"
+          />
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-5">
-        <div className="card-soft p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-display font-bold">Recent Security Alerts</h3>
-            <span className="text-xs font-semibold text-primary">
-              {recentAlerts.length} recent
+      <div className="grid lg:grid-cols-3 gap-4 sm:gap-5">
+        <DashboardSection
+          className="lg:col-span-2"
+          title="Assessment Activity"
+          meta="Last 7 days"
+        >
+          <ActivityAreaChart data={activityData} height="md" />
+        </DashboardSection>
+
+        <DashboardSection
+          title="Security Status"
+          meta={
+            <span className="inline-flex items-center gap-1.5 text-success font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+              Live
             </span>
-          </div>
-          <div className="space-y-2.5 max-h-[240px] overflow-y-auto pr-1">
-            {recentAlerts.map((alert) => (
-              <div
-                key={alert.id}
-                className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-muted/50"
-              >
-                <div className="w-2.5 h-2.5 rounded-full bg-danger mt-1.5" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold truncate">{alert.type}</div>
-                  <div className="text-[11px] text-muted-foreground truncate">
-                    {alert.student} · {alert.assessment}
-                  </div>
-                </div>
-                <div className="text-[11px] text-muted-foreground">{alert.time}</div>
-              </div>
-            ))}
-            {!recentAlerts.length && (
-              <div className="text-sm text-muted-foreground py-6 text-center">
-                No security events recorded yet.
-              </div>
-            )}
-          </div>
-        </div>
+          }
+          bodyClassName="min-h-[13rem] flex flex-col justify-center"
+        >
+          <SecurityDonut segments={securitySegments} />
+        </DashboardSection>
+      </div>
 
-        <div className="card-soft p-5 lg:col-span-2 overflow-x-auto">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-display font-bold">Recent Assessments</h3>
-            <Link href="/admin/assessments" className="text-xs font-semibold text-primary">
+      <div className="grid lg:grid-cols-3 gap-4 sm:gap-5">
+        <DashboardSection className="lg:col-span-2" title="User Growth">
+          <GrowthBarChart data={growthData} height="md" />
+        </DashboardSection>
+
+        <DashboardSection title="Coding Languages">
+          <LanguageBarChart data={languageData} height="sm" />
+        </DashboardSection>
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-4 sm:gap-5">
+        <DashboardSection
+          title="Recent Security Alerts"
+          meta={`${recentAlerts.length} recent`}
+          bodyClassName="max-h-56 overflow-y-auto"
+        >
+          {recentAlerts.length ? (
+            <ul className="divide-y divide-border">
+              {recentAlerts.map((alert) => (
+                <li
+                  key={alert.id}
+                  className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0 hover:bg-muted/30 -mx-1 px-1 rounded-lg transition-colors"
+                >
+                  <span
+                    className={cn(
+                      "w-2 h-2 rounded-full mt-1.5 shrink-0",
+                      alert.severity === "high"
+                        ? "bg-danger"
+                        : alert.severity === "medium"
+                          ? "bg-warning"
+                          : "bg-muted-foreground/60",
+                    )}
+                    aria-hidden
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold leading-snug">
+                      {alert.type}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                      {alert.student} · {alert.assessment}
+                    </p>
+                  </div>
+                  <time className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                    {alert.time}
+                  </time>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground py-8 text-center">
+              No security events recorded yet.
+            </p>
+          )}
+        </DashboardSection>
+
+        <DashboardSection
+          className="lg:col-span-2 overflow-hidden"
+          title="Recent Assessments"
+          action={
+            <Link
+              href="/admin/assessments"
+              className="text-xs font-semibold text-primary hover:underline"
+            >
               View all →
             </Link>
+          }
+        >
+          <div className="overflow-x-auto -mx-1">
+            <table className="w-full text-sm min-w-[540px]">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
+                  <th className="text-left py-2 px-2 font-semibold">Title</th>
+                  <th className="text-left py-2 px-2 font-semibold">Type</th>
+                  <th className="text-left py-2 px-2 font-semibold hidden sm:table-cell">
+                    Difficulty
+                  </th>
+                  <th className="text-left py-2 px-2 font-semibold">Qs</th>
+                  <th className="text-left py-2 px-2 font-semibold hidden md:table-cell">
+                    Marks
+                  </th>
+                  <th className="text-left py-2 px-2 font-semibold">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentAssessments.map((assessment) => (
+                  <tr
+                    key={assessment.id}
+                    className="border-b border-border last:border-0 hover:bg-muted/25 transition-colors"
+                  >
+                    <td className="py-2.5 px-2 font-medium max-w-[180px] truncate">
+                      {assessment.title}
+                    </td>
+                    <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">
+                      {displayType(assessment.type)}
+                    </td>
+                    <td className="py-2.5 px-2 hidden sm:table-cell text-muted-foreground">
+                      {displayDifficulty(assessment.difficulty)}
+                    </td>
+                    <td className="py-2.5 px-2 tabular-nums">
+                      {assessment.questionCount}
+                    </td>
+                    <td className="py-2.5 px-2 hidden md:table-cell tabular-nums">
+                      {assessment.totalMarks}
+                    </td>
+                    <td className="py-2.5 px-2">
+                      <StatusBadge
+                        variant={assessmentStatusVariant(assessment.status)}
+                      >
+                        {displayStatus(assessment.status)}
+                      </StatusBadge>
+                    </td>
+                  </tr>
+                ))}
+                {!recentAssessments.length && (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="py-8 text-center text-muted-foreground"
+                    >
+                      No assessments yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
-                <th className="text-left py-2 px-2">Title</th>
-                <th className="text-left py-2 px-2">Type</th>
-                <th className="text-left py-2 px-2">Difficulty</th>
-                <th className="text-left py-2 px-2">Questions</th>
-                <th className="text-left py-2 px-2">Marks</th>
-                <th className="text-left py-2 px-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentAssessments.map((assessment) => (
-                <tr key={assessment.id} className="border-b border-border last:border-0 hover:bg-muted/30">
-                  <td className="py-3 px-2 font-medium">{assessment.title}</td>
-                  <td className="py-3 px-2">{displayType(assessment.type)}</td>
-                  <td className="py-3 px-2">{displayDifficulty(assessment.difficulty)}</td>
-                  <td className="py-3 px-2">{assessment.questionCount}</td>
-                  <td className="py-3 px-2">{assessment.totalMarks}</td>
-                  <td className="py-3 px-2">{displayStatus(assessment.status)}</td>
-                </tr>
-              ))}
-              {!recentAssessments.length && (
-                <tr>
-                  <td colSpan={6} className="py-6 text-center text-muted-foreground">
-                    No assessments yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        </DashboardSection>
       </div>
     </div>
   );

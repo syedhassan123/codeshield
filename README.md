@@ -81,6 +81,24 @@ Open [http://localhost:3000](http://localhost:3000).
 | **11** | Advanced AI proctoring analysis — evidence aggregation, temporal correlation, explainable risk scoring, unified timeline, automated review summary |
 | **11.5** | Student dashboard wired to real MongoDB data (stats, activity, assessments) |
 | **12** | Coding execution security hardening — isolated runner limits, authz, hidden tests, compile/timeout handling, duplicate-run guards |
+| **13** | Production hardening & end-to-end QA — attempt/submit/recording idempotency, auth isolation, timer authority, result uniqueness |
+
+## Phase 13 — Production hardening
+
+Hardened the existing assessment/proctoring pipeline (no new features):
+
+- Atomic attempt finalization + one result per attempt
+- Recording leftover `RECORDING`/`UPLOADING` rows close to `FAILED` when the attempt completes
+- Autosave flush before submit; exam submit no longer deadlocks on recording upload failure
+- Registration always creates `student`; `skipVerification` removed from credentials
+- Demo login gated by `ALLOW_DEMO_LOGIN` (off in production unless enabled)
+- Server-side remaining-time authority unchanged; overdue attempts expire on touch / monitoring
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase13-hardening.ts
+```
+
+Standalone `/student/coding` practice remains **deferred**. Interviewer production integration is **not in this phase**.
 
 ## Phase 12 — Coding execution & security hardening
 
@@ -146,10 +164,10 @@ The Admin area now reads from MongoDB instead of `mock-data.ts`:
 ## Still mock / future work
 
 - `/admin/interviews` and all interview/WebRTC pages
-- Student/interviewer dashboard mock widgets (notifications, certificates, etc.)
-- Standalone `/student/coding` practice editor
+- Student coding practice (`/student/coding`) — **deferred**
+- Certificates issuance
 - AI subjective evaluation assist
-- Live WebSocket monitoring (Phase 9 uses polling)
+- Live WebSocket monitoring (admin monitoring uses polling + overdue expiry)
 - External LLM-generated summaries (Phase 11 uses rule-based automated review text)
 
 ## Verification scripts
@@ -162,6 +180,8 @@ npx tsx --env-file=.env.local scripts/verify-phase10-proctoring.ts
 npx tsx --env-file=.env.local scripts/verify-phase11-ai-proctoring.ts
 npx tsx --env-file=.env.local scripts/verify-phase11-5-student-dashboard.ts
 npx tsx --env-file=.env.local scripts/verify-phase12-coding.ts
+npx tsx --env-file=.env.local scripts/verify-phase13-hardening.ts
+npx tsx --env-file=.env.local scripts/verify-production-submission-recording.ts
 ```
 
 See `docs/CODE_RUNNER.md` for code runner setup.

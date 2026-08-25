@@ -66,7 +66,10 @@ export function riskTone(risk: "LOW" | "MEDIUM" | "HIGH") {
 }
 
 export function escapeCsvCell(value: unknown) {
-  const text = value == null ? "" : String(value);
+  let text = value == null ? "" : String(value);
+  if (/^[=+\-@|]/.test(text)) {
+    text = `'${text}`;
+  }
   if (/[",\n\r]/.test(text)) {
     return `"${text.replace(/"/g, '""')}"`;
   }

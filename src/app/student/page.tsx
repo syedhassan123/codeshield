@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { ArrowRight, Bell } from "lucide-react";
+import { ArrowRight, Bell, Calendar, Video } from "lucide-react";
 import { ActivityAreaChart } from "@/components/charts/simple-charts";
+import { DashboardSection } from "@/components/ui/dashboard-section";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { connectDB } from "@/lib/db";
 import { getStudentDashboardData } from "@/lib/student/dashboard-queries";
 import { requirePageRole } from "@/lib/safe-auth";
@@ -10,6 +12,7 @@ import {
   displayDifficulty,
   displayType,
 } from "@/lib/serializers";
+import { cn } from "@/lib/utils";
 
 function attemptStatusLabel(
   status: "not_started" | "in_progress" | "completed",
@@ -21,6 +24,19 @@ function attemptStatusLabel(
       return "Completed";
     default:
       return "Not started";
+  }
+}
+
+function attemptStatusVariant(
+  status: "not_started" | "in_progress" | "completed",
+) {
+  switch (status) {
+    case "in_progress":
+      return "primary" as const;
+    case "completed":
+      return "success" as const;
+    default:
+      return "muted" as const;
   }
 }
 
@@ -62,137 +78,171 @@ export default async function StudentDashboardPage() {
 
   const { stats, upcoming, performanceTrend, activity } = dashboard;
 
-
-    console.log("Logged in User: ",session?.user);
+  const trendMeta =
+    stats.averageScorePercent != null
+      ? `Avg score ${stats.averageScorePercent}%`
+      : stats.inProgressAttempts > 0
+        ? `${stats.inProgressAttempts} in progress`
+        : "Last 7 days";
 
   return (
-    <div>
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         title={`Hi ${first} 👋`}
         description="Ready for your next challenge? Let's keep the streak going."
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard
           label="Assessments Taken"
           value={stats.assessmentsTaken.toLocaleString()}
+          emphasis
         />
         <StatCard
           label="Coding Solved"
           value={stats.codingSolved.toLocaleString()}
+          emphasis
         />
-        <StatCard label="Interviews" value={stats.interviews.toLocaleString()} />
+        <StatCard
+          label="Interviews"
+          value={stats.interviews.toLocaleString()}
+          emphasis
+        />
         <StatCard
           label="Certificates"
           value={stats.certificates.toLocaleString()}
+          emphasis
         />
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-5 mb-6">
-        <div className="card-soft p-5 lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-display font-bold">Performance Trend</h3>
-            <span className="text-xs font-semibold text-muted-foreground">
-              {stats.averageScorePercent != null
-                ? `Avg score ${stats.averageScorePercent}%`
-                : stats.inProgressAttempts > 0
-                  ? `${stats.inProgressAttempts} in progress`
-                  : "Last 7 days"}
-            </span>
-          </div>
-          <ActivityAreaChart data={performanceTrend} />
-        </div>
-        <div className="card-soft p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Bell className="w-4 h-4 text-muted-foreground" />
-            <h3 className="font-display font-bold">Notifications</h3>
-          </div>
-          <div className="space-y-2">
-            {activity.map((item) => (
-              <div
-                key={item.id}
-                className="flex gap-3 items-start p-2 rounded-lg hover:bg-muted/40"
-              >
-                <span className="text-primary mt-1">•</span>
-                <div className="min-w-0">
+      <div className="grid lg:grid-cols-3 gap-4 sm:gap-5">
+        <DashboardSection
+          className="lg:col-span-2"
+          title="Performance Trend"
+          meta={trendMeta}
+        >
+          <ActivityAreaChart data={performanceTrend} height="md" />
+        </DashboardSection>
+
+        <DashboardSection
+          title="Notifications"
+          action={
+            <Bell className="w-4 h-4 text-muted-foreground" aria-hidden />
+          }
+          bodyClassName="max-h-52 overflow-y-auto pr-0.5 -mr-0.5"
+        >
+          {activity.length ? (
+            <ul className="divide-y divide-border">
+              {activity.map((item) => (
+                <li key={item.id} className="py-2.5 first:pt-0 last:pb-0">
                   {item.href ? (
                     <Link
                       href={item.href}
-                      className="text-sm font-semibold hover:text-primary"
+                      className="block group rounded-lg -mx-1 px-1 py-0.5 hover:bg-muted/40 transition-colors"
                     >
-                      {item.text}
+                      <p className="text-sm font-semibold leading-snug group-hover:text-primary transition-colors">
+                        {item.text}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {item.time}
+                      </p>
                     </Link>
                   ) : (
-                    <div className="text-sm font-semibold">{item.text}</div>
+                    <>
+                      <p className="text-sm font-semibold leading-snug">
+                        {item.text}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {item.time}
+                      </p>
+                    </>
                   )}
-                  <div className="text-[11px] text-muted-foreground">
-                    {item.time}
-                  </div>
-                </div>
-              </div>
-            ))}
-            {!activity.length && (
-              <p className="text-sm text-muted-foreground py-2">
-                No recent activity yet.
-              </p>
-            )}
-          </div>
-        </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No recent activity yet.
+            </p>
+          )}
+        </DashboardSection>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-5">
-        <div className="card-soft p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-display font-bold">Upcoming Assessments</h3>
+      <div className="grid lg:grid-cols-2 gap-4 sm:gap-5">
+        <DashboardSection
+          title="Upcoming Assessments"
+          action={
             <Link
               href="/student/assessments"
-              className="text-xs font-semibold text-primary inline-flex items-center gap-1"
+              className="text-xs font-semibold text-primary inline-flex items-center gap-1 hover:underline"
             >
               View all <ArrowRight className="w-3.5 h-3.5" />
             </Link>
-          </div>
-          <div className="space-y-3">
-            {upcoming.map((a) => (
-              <Link
-                key={a.id}
-                href={
-                  a.attemptStatus === "in_progress" && a.inProgressAttemptId
-                    ? `/student/exam/session/${a.inProgressAttemptId}`
-                    : `/student/exam/${a.id}`
-                }
-                className="flex items-center gap-3 p-3 rounded-xl border border-border hover:border-primary transition group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-primary-soft text-primary flex items-center justify-center text-xs font-bold">
-                  {displayDifficulty(a.difficulty)[0]}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm">{a.title}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {displayType(a.type)} · {a.durationMin} min ·{" "}
-                    {a.questionCount} Qs · {displayDifficulty(a.difficulty)} ·{" "}
-                    {attemptStatusLabel(a.attemptStatus)}
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 group-hover:text-primary transition" />
-              </Link>
-            ))}
-            {!upcoming.length && (
-              <p className="text-sm text-muted-foreground py-4">
+          }
+        >
+          {upcoming.length ? (
+            <ul className="space-y-2.5">
+              {upcoming.map((a) => (
+                <li key={a.id}>
+                  <Link
+                    href={
+                      a.attemptStatus === "in_progress" &&
+                      a.inProgressAttemptId
+                        ? `/student/exam/session/${a.inProgressAttemptId}`
+                        : `/student/exam/${a.id}`
+                    }
+                    className="flex items-center gap-3 p-3 rounded-xl border border-border hover:border-primary/40 hover:bg-muted/20 transition-colors group"
+                  >
+                    <div
+                      className={cn(
+                        "w-10 h-10 rounded-lg shrink-0 flex items-center justify-center text-xs font-bold",
+                        "bg-primary-soft text-primary",
+                      )}
+                    >
+                      {displayDifficulty(a.difficulty)[0]}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                        <span className="font-semibold text-sm truncate">
+                          {a.title}
+                        </span>
+                        <StatusBadge variant={attemptStatusVariant(a.attemptStatus)}>
+                          {attemptStatusLabel(a.attemptStatus)}
+                        </StatusBadge>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {displayType(a.type)} · {a.durationMin} min ·{" "}
+                        {a.questionCount} Qs · {displayDifficulty(a.difficulty)}
+                      </p>
+                    </div>
+                    <ArrowRight className="w-4 h-4 shrink-0 text-muted-foreground group-hover:translate-x-0.5 group-hover:text-primary transition" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="py-8 text-center">
+              <Calendar className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">
                 No published assessments yet.
               </p>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
+        </DashboardSection>
 
-        <div className="card-soft p-5">
-          <h3 className="font-display font-bold mb-4">Upcoming Interviews</h3>
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground py-4">
-              No interviews scheduled yet. Interview scheduling is not available
-              in this release.
+        <DashboardSection title="Upcoming Interviews">
+          <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+            <div className="w-11 h-11 rounded-xl bg-muted flex items-center justify-center mb-3">
+              <Video className="w-5 h-5 text-muted-foreground" />
+            </div>
+            <p className="text-sm font-semibold text-foreground">
+              No interviews scheduled
+            </p>
+            <p className="text-xs text-muted-foreground mt-1.5 max-w-xs leading-relaxed">
+              Interview scheduling is not available in this release.
             </p>
           </div>
-        </div>
+        </DashboardSection>
       </div>
     </div>
   );

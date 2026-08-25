@@ -17,7 +17,6 @@ import type { UserRole } from "@/types/user";
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
-  skipVerification: z.enum(["true", "false"]).optional(),
 });
 
 function flowLog(tag: string, message: string) {
@@ -35,7 +34,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
-        skipVerification: { label: "Skip Verification", type: "text" },
       },
       async authorize(credentials) {
         const startedAt = Date.now();
@@ -49,7 +47,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         debugLog("AUTH", "login_email", {
           email: maskEmail(parsed.data.email),
-          skipVerification: parsed.data.skipVerification === "true",
         });
 
         try {
@@ -79,23 +76,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null;
           }
 
-          const skip = parsed.data.skipVerification === "true";
-
-          // Explicit false blocks login; missing/true allows (legacy + verified).
-          // Demo quick-login may skip registration verification.
-          if (!skip && user.emailVerified === false) {
+          if (user.emailVerified === false) {
             debugLog("AUTH", "LOGIN_DENIED", {
               reason: "email_not_verified",
               id: maskId(user._id.toString()),
               email: maskEmail(user.email),
             });
             return null;
-          }
-
-          if (skip) {
-            await User.findByIdAndUpdate(user._id, {
-              $set: { emailVerified: true },
-            });
           }
 
           const role = user.role as UserRole;
@@ -109,7 +96,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             role: role.toUpperCase(),
             id: maskId(user._id.toString()),
             email: maskEmail(user.email),
-            skipVerification: skip,
             duration: `${Date.now() - startedAt}ms`,
           });
 

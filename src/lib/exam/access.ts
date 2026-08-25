@@ -29,5 +29,9 @@ export async function findPublishedAssessmentForStudent(
     throw new ActionError("Assessment not available.");
   }
 
+  if (doc.scheduledAt && new Date(doc.scheduledAt).getTime() > Date.now()) {
+    throw new ActionError("This assessment is not available yet.");
+  }
+
   return doc;
 }
