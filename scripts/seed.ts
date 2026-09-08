@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import { Assessment } from "../src/models/Assessment";
 import { Counter } from "../src/models/Counter";
+import { Interview } from "../src/models/Interview";
 import { Question } from "../src/models/Question";
 import { User } from "../src/models/User";
 
@@ -38,6 +39,14 @@ async function seed() {
       name: "Kabir Mehta",
       role: "interviewer",
       avatar: "KM",
+      status: "active",
+      emailVerified: true,
+    },
+    {
+      email: "riya@codeshield.ai",
+      name: "Riya Rodriguez",
+      role: "interviewer",
+      avatar: "RR",
       status: "active",
       emailVerified: true,
     },
@@ -240,6 +249,107 @@ async function seed() {
   );
 
   console.log(`Seeded ${questions.length} questions and 4 assessments`);
+
+  const kabirId = userDocs["kabir@codeshield.ai"];
+  const riyaId = userDocs["riya@codeshield.ai"];
+  const rohanId = userDocs["rohan@codeshield.edu"];
+  const demoId = userDocs["demo@codeshield.ai"];
+
+  function todayAt(hours: number, minutes: number) {
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+  }
+
+  function daysFromNow(days: number, hours: number, minutes: number) {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+  }
+
+  function daysAgo(days: number, hours: number, minutes: number) {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+  }
+
+  const seedInterviews = [
+    {
+      interviewerId: kabirId,
+      candidateId: rohanId,
+      title: "Software Engineer",
+      type: "Coding" as const,
+      scheduledAt: todayAt(14, 30),
+      durationMin: 60,
+      status: "scheduled" as const,
+    },
+    {
+      interviewerId: kabirId,
+      candidateId: demoId,
+      title: "ML Engineer",
+      type: "Technical" as const,
+      scheduledAt: todayAt(10, 0),
+      durationMin: 30,
+      status: "in_progress" as const,
+    },
+    {
+      interviewerId: kabirId,
+      candidateId: rohanId,
+      title: "QA Engineer",
+      type: "Coding" as const,
+      scheduledAt: daysFromNow(2, 9, 0),
+      durationMin: 30,
+      status: "scheduled" as const,
+    },
+    {
+      interviewerId: kabirId,
+      candidateId: demoId,
+      title: "DevOps Engineer",
+      type: "Coding" as const,
+      scheduledAt: daysAgo(3, 12, 0),
+      durationMin: 45,
+      status: "completed" as const,
+    },
+    {
+      interviewerId: kabirId,
+      candidateId: rohanId,
+      title: "Frontend Developer",
+      type: "HR" as const,
+      scheduledAt: todayAt(16, 0),
+      durationMin: 60,
+      status: "cancelled" as const,
+    },
+    {
+      interviewerId: riyaId,
+      candidateId: demoId,
+      title: "Backend Engineer",
+      type: "Technical" as const,
+      scheduledAt: todayAt(11, 0),
+      durationMin: 45,
+      status: "scheduled" as const,
+    },
+  ] as const;
+
+  for (const interview of seedInterviews) {
+    await Interview.findOneAndUpdate(
+      {
+        interviewerId: interview.interviewerId,
+        candidateId: interview.candidateId,
+        title: interview.title,
+        type: interview.type,
+      },
+      {
+        ...interview,
+        createdBy: adminId,
+        meetingUrl: null,
+      },
+      { upsert: true, setDefaultsOnInsert: true },
+    );
+  }
+
+  console.log(`Upserted ${seedInterviews.length} seed interviews`);
   console.log("Seed complete. Password for all users: password123");
   await mongoose.disconnect();
 }

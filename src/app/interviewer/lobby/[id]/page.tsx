@@ -1,6 +1,10 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { Camera, Mic, ScanFace, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { auth } from "@/lib/auth";
+import { connectDB } from "@/lib/db";
+import { getInterviewForParticipant } from "@/lib/interviewer/queries";
 
 export default async function InterviewLobbyPage({
   params,
@@ -8,6 +12,22 @@ export default async function InterviewLobbyPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    notFound();
+  }
+
+  await connectDB();
+  const interview = await getInterviewForParticipant(
+    id,
+    session.user.id,
+    session.user.role,
+  );
+
+  if (!interview) {
+    notFound();
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-background relative">
@@ -17,6 +37,15 @@ export default async function InterviewLobbyPage({
         <p className="text-sm text-muted-foreground mt-2">
           Run final checks before joining the room
         </p>
+
+        <div className="mt-4 rounded-xl border border-border p-4 space-y-1">
+          <div className="font-semibold text-sm">{interview.title}</div>
+          <div className="text-[11px] text-muted-foreground">
+            {interview.candidateName} · {interview.type} ·{" "}
+            {interview.formattedDate} · {interview.formattedTime} ·{" "}
+            {interview.durationMin} min
+          </div>
+        </div>
 
         <div className="mt-6 aspect-video rounded-2xl bg-slate-900 text-white flex items-center justify-center relative">
           <div className="absolute top-3 left-3 text-[11px] font-semibold bg-black/50 px-2 py-1 rounded">
@@ -39,7 +68,9 @@ export default async function InterviewLobbyPage({
               <item.icon className="w-4 h-4 text-primary" />
               <div className="flex-1">
                 <div className="text-sm font-semibold">{item.label}</div>
-                <div className="text-[11px] text-muted-foreground">{item.value}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {item.value}
+                </div>
               </div>
             </div>
           ))}

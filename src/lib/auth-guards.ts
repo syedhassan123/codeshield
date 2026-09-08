@@ -66,3 +66,7 @@ export async function requireAdmin() {
 export async function requireStudent() {
   return requireRole(["student"]);
 }
+
+export async function requireInterviewer() {
+  return requireRole(["interviewer"]);
+}
