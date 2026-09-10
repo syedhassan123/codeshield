@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { Assessment } from "../src/models/Assessment";
 import { Counter } from "../src/models/Counter";
 import { Interview } from "../src/models/Interview";
+import { InterviewEvaluation } from "../src/models/InterviewEvaluation";
 import { Question } from "../src/models/Question";
 import { User } from "../src/models/User";
 
@@ -315,6 +316,15 @@ async function seed() {
     {
       interviewerId: kabirId,
       candidateId: rohanId,
+      title: "Data Engineer",
+      type: "Technical" as const,
+      scheduledAt: daysAgo(5, 15, 0),
+      durationMin: 45,
+      status: "completed" as const,
+    },
+    {
+      interviewerId: kabirId,
+      candidateId: rohanId,
       title: "Frontend Developer",
       type: "HR" as const,
       scheduledAt: todayAt(16, 0),
@@ -350,6 +360,30 @@ async function seed() {
   }
 
   console.log(`Upserted ${seedInterviews.length} seed interviews`);
+
+  const devOpsInterview = await Interview.findOne({
+    interviewerId: kabirId,
+    candidateId: demoId,
+    title: "DevOps Engineer",
+  }).lean();
+
+  if (devOpsInterview) {
+    await InterviewEvaluation.findOneAndUpdate(
+      { interviewId: devOpsInterview._id },
+      {
+        interviewId: devOpsInterview._id,
+        interviewerId: kabirId,
+        candidateId: demoId,
+        score: 88,
+        notes: "Strong infrastructure knowledge and clear communication.",
+        status: "submitted",
+        submittedAt: daysAgo(2, 10, 0),
+      },
+      { upsert: true, setDefaultsOnInsert: true },
+    );
+    console.log("Upserted seed evaluation for DevOps Engineer interview");
+  }
+
   console.log("Seed complete. Password for all users: password123");
   await mongoose.disconnect();
 }

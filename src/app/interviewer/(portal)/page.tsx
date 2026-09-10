@@ -15,11 +15,14 @@ export default async function InterviewerDashboardPage() {
     todayCount: 0,
     weekCount: 0,
     completedCount: 0,
-    avgRating: null as null,
+    avgRating: null as number | null,
     todaySchedule: [] as Awaited<
       ReturnType<typeof getInterviewerDashboardMetrics>
     >["todaySchedule"],
-    pendingEvaluationsCount: 0 as const,
+    pendingEvaluationsCount: 0,
+    pendingEvaluations: [] as Awaited<
+      ReturnType<typeof getInterviewerDashboardMetrics>
+    >["pendingEvaluations"],
   };
   let loadError = false;
 
@@ -47,7 +50,12 @@ export default async function InterviewerDashboardPage() {
         <StatCard label="Today's Interviews" value={String(metrics.todayCount)} />
         <StatCard label="This Week" value={String(metrics.weekCount)} />
         <StatCard label="Completed" value={String(metrics.completedCount)} />
-        <StatCard label="Avg Rating" value="—" />
+        <StatCard
+          label="Avg Rating"
+          value={
+            metrics.avgRating == null ? "—" : `${metrics.avgRating}%`
+          }
+        />
       </div>
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-5">
@@ -93,9 +101,34 @@ export default async function InterviewerDashboardPage() {
         <div className="card-soft p-5">
           <h3 className="font-display font-bold mb-4">Pending Evaluations</h3>
           <div className="space-y-2">
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              No interview evaluations available yet.
-            </p>
+            {metrics.pendingEvaluations.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                No pending evaluations.
+              </p>
+            ) : (
+              metrics.pendingEvaluations.map((item) => (
+                <Link
+                  key={item.interviewId}
+                  href={`/interviewer/evaluations/${item.interviewId}`}
+                  className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/40"
+                >
+                  <div className="w-9 h-9 rounded-full bg-primary-soft text-primary flex items-center justify-center text-xs font-bold">
+                    {item.candidateInitials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold truncate">
+                      {item.candidateName}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground truncate">
+                      {item.title}
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold text-primary">
+                    Evaluate
+                  </span>
+                </Link>
+              ))
+            )}
           </div>
         </div>
       </div>

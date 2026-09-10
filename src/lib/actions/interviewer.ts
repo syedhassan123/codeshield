@@ -1,17 +1,24 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+import { ZodError } from "zod";
 import { ActionError, requireInterviewer } from "@/lib/auth-guards";
 import { connectDB } from "@/lib/db";
 import { createServerOp } from "@/lib/debug";
 import {
+  getEvaluationFormContext,
   getInterviewerDashboardMetrics,
   getInterviewerCandidate,
   getInterviewForParticipant,
   getOwnedInterview,
+  isValidObjectId,
   listInterviewerCandidateInterviews,
   listInterviewerCandidates,
+  listInterviewerEvaluations,
   listInterviewerInterviews,
 } from "@/lib/interviewer/queries";
+import { submitOwnedInterviewEvaluation } from "@/lib/interviewer/evaluations";
+import { submitInterviewEvaluationSchema } from "@/lib/validators/interview-evaluation";
 
 export async function loadInterviewerDashboardAction() {
   const op = createServerOp({
@@ -181,6 +188,98 @@ export async function loadInterviewerCandidateInterviewsAction(
     );
 
     return op.respond(interviews);
+  } catch (error) {
+    return op.respondError(error);
+  }
+}
+
+export async function loadInterviewerEvaluationsAction() {
+  const op = createServerOp({
+    domain: "INTERVIEW",
+    operation: "LIST_EVALUATIONS",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const session = await requireInterviewer();
+    op.auth(session.user);
+    op.allowed("interviewer list evaluations");
+    await connectDB();
+
+    const evaluations = await listInterviewerEvaluations(session.user.id);
+    return op.respond(evaluations);
+  } catch (error) {
+    return op.respondError(error);
+  }
+}
+
+export async function submitInterviewEvaluationAction(raw: unknown) {
+  const op = createServerOp({
+    domain: "INTERVIEW",
+    operation: "SUBMIT_EVALUATION",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const session = await requireInterviewer();
+    op.auth(session.user);
+    op.allowed("interviewer submit evaluation");
+
+    let input;
+    try {
+      input = submitInterviewEvaluationSchema.parse(raw);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        throw new ActionError(
+          error.issues[0]?.message || "Invalid evaluation input.",
+        );
+      }
+      throw error;
+    }
+
+    if (!isValidObjectId(input.interviewId)) {
+      throw new ActionError("Evaluation not available.");
+    }
+
+    await connectDB();
+
+    const saved = await submitOwnedInterviewEvaluation(
+      session.user.id,
+      input,
+    );
+
+    revalidatePath("/interviewer");
+    revalidatePath("/interviewer/evaluations");
+    revalidatePath(`/interviewer/evaluations/${input.interviewId}`);
+
+    return op.respond(saved);
+  } catch (error) {
+    return op.respondError(error);
+  }
+}
+
+export async function loadEvaluationFormContextAction(interviewId: string) {
+  const op = createServerOp({
+    domain: "INTERVIEW",
+    operation: "GET_EVALUATION_FORM",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const session = await requireInterviewer();
+    op.auth(session.user);
+    op.allowed("interviewer evaluation form");
+    await connectDB();
+
+    const context = await getEvaluationFormContext(
+      interviewId,
+      session.user.id,
+    );
+    if (!context) {
+      throw new ActionError("Evaluation not available.");
+    }
+
+    return op.respond(context);
   } catch (error) {
     return op.respondError(error);
   }

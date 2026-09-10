@@ -1,7 +1,9 @@
-import { auth } from "@/lib/auth";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/ui/stat-card";
+import { connectDB } from "@/lib/db";
+import { countStudentInterviews } from "@/lib/student/interview-queries";
+import { requirePageRole } from "@/lib/safe-auth";
 import { initials } from "@/lib/utils";
 
 const skills = [
@@ -13,9 +15,17 @@ const skills = [
 ];
 
 export default async function StudentProfilePage() {
-  const session = await auth();
-  const name = session?.user?.name || "Rohan Sharma";
-  const email = session?.user?.email || "rohan@codeshield.edu";
+  const session = await requirePageRole(["student"]);
+  const name = session.user.name || "Student";
+  const email = session.user.email || "";
+
+  let interviewCount = 0;
+  try {
+    await connectDB();
+    interviewCount = await countStudentInterviews(session.user.id);
+  } catch {
+    interviewCount = 0;
+  }
 
   return (
     <div>
@@ -45,7 +55,7 @@ export default async function StudentProfilePage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard label="Assessments" value="14" />
         <StatCard label="Coding" value="42" />
-        <StatCard label="Interviews" value="3" />
+        <StatCard label="Interviews" value={String(interviewCount)} />
         <StatCard label="Certificates" value="5" />
       </div>
 

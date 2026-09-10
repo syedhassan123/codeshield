@@ -1,10 +1,12 @@
 import mongoose from "mongoose";
 import { initials } from "@/lib/utils";
 import {
+  formatInterviewDate,
   formatInterviewDateTime,
   formatInterviewStatus,
 } from "@/lib/interviewer/format";
 import { Interview } from "@/models/Interview";
+import { InterviewEvaluation } from "@/models/InterviewEvaluation";
 import { User } from "@/models/User";
 import type { InterviewStatus, InterviewType } from "@/types/interview";
 import type { UserRole } from "@/types/user";
@@ -107,13 +109,46 @@ function serializeInterview(doc: InterviewLean): SerializedInterview {
   };
 }
 
+export type SerializedPendingEvaluation = {
+  interviewId: string;
+  candidateName: string;
+  candidateInitials: string;
+  title: string;
+  type: InterviewType;
+  formattedDate: string;
+};
+
+export type SerializedCompletedEvaluation = {
+  interviewId: string;
+  candidateName: string;
+  candidateInitials: string;
+  title: string;
+  formattedDate: string;
+  score: number;
+  submittedAtLabel: string;
+};
+
+export type SerializedInterviewEvaluation = {
+  interviewId: string;
+  candidateName: string;
+  candidateInitials: string;
+  title: string;
+  type: InterviewType;
+  formattedDate: string;
+  score: number;
+  notes: string;
+  submittedAt: Date;
+  submittedAtLabel: string;
+};
+
 export type InterviewerDashboardMetrics = {
   todayCount: number;
   weekCount: number;
   completedCount: number;
-  avgRating: null;
+  avgRating: number | null;
   todaySchedule: SerializedInterview[];
-  pendingEvaluationsCount: 0;
+  pendingEvaluationsCount: number;
+  pendingEvaluations: SerializedPendingEvaluation[];
 };
 
 export async function getInterviewerDashboardMetrics(
@@ -127,7 +162,8 @@ export async function getInterviewerDashboardMetrics(
   const weekEnd = endOfWeek(now);
   const activeFilter = { status: { $ne: "cancelled" as const } };
 
-  const [todayCount, weekCount, completedCount, todayDocs] = await Promise.all([
+  const [todayCount, weekCount, completedCount, todayDocs, pendingEvaluations, pendingEvaluationsCount, avgScoreAgg] =
+    await Promise.all([
     Interview.countDocuments({
       interviewerId: interviewerOid,
       scheduledAt: { $gte: todayStart, $lt: todayEnd },
@@ -151,15 +187,27 @@ export async function getInterviewerDashboardMetrics(
       .limit(4)
       .populate("candidateId", CANDIDATE_FIELDS)
       .lean<InterviewLean[]>(),
+    listPendingInterviewerEvaluations(interviewerId, 6),
+    countPendingInterviewerEvaluations(interviewerId),
+    InterviewEvaluation.aggregate<{ avgScore: number }>([
+      { $match: { interviewerId: interviewerOid } },
+      { $group: { _id: null, avgScore: { $avg: "$score" } } },
+    ]),
   ]);
+
+  const avgRating =
+    avgScoreAgg[0]?.avgScore != null
+      ? Math.round(avgScoreAgg[0].avgScore)
+      : null;
 
   return {
     todayCount,
     weekCount,
     completedCount,
-    avgRating: null,
+    avgRating,
     todaySchedule: todayDocs.map(serializeInterview),
-    pendingEvaluationsCount: 0,
+    pendingEvaluationsCount: pendingEvaluationsCount,
+    pendingEvaluations,
   };
 }
 
@@ -417,4 +465,266 @@ export async function listInterviewerCandidateInterviews(
     .lean<InterviewLean[]>();
 
   return docs.map(serializeInterview);
+}
+
+type PendingInterviewAggregate = {
+  _id: mongoose.Types.ObjectId;
+  title: string;
+  type: InterviewType;
+  scheduledAt: Date;
+  candidate: {
+    name: string;
+  };
+};
+
+type CompletedEvaluationAggregate = {
+  interviewId: mongoose.Types.ObjectId;
+  score: number;
+  submittedAt: Date;
+  interview: {
+    title: string;
+    scheduledAt: Date;
+    candidate: { name: string };
+  };
+};
+
+function serializePendingRow(row: PendingInterviewAggregate): SerializedPendingEvaluation {
+  const candidateName = row.candidate?.name ?? "Unknown";
+  return {
+    interviewId: row._id.toString(),
+    candidateName,
+    candidateInitials: initials(candidateName),
+    title: row.title,
+    type: row.type,
+    formattedDate: formatInterviewDate(row.scheduledAt),
+  };
+}
+
+function serializeCompletedRow(
+  row: CompletedEvaluationAggregate,
+): SerializedCompletedEvaluation {
+  const candidateName = row.interview?.candidate?.name ?? "Unknown";
+  return {
+    interviewId: row.interviewId.toString(),
+    candidateName,
+    candidateInitials: initials(candidateName),
+    title: row.interview?.title ?? "Interview",
+    formattedDate: formatInterviewDate(row.interview?.scheduledAt ?? row.submittedAt),
+    score: row.score,
+    submittedAtLabel: formatInterviewDate(row.submittedAt),
+  };
+}
+
+export async function listPendingInterviewerEvaluations(
+  interviewerId: string,
+  limit = 50,
+): Promise<SerializedPendingEvaluation[]> {
+  const interviewerOid = new mongoose.Types.ObjectId(interviewerId);
+
+  const rows = await Interview.aggregate<PendingInterviewAggregate>([
+    {
+      $match: {
+        interviewerId: interviewerOid,
+        status: "completed",
+      },
+    },
+    {
+      $lookup: {
+        from: "interviewevaluations",
+        localField: "_id",
+        foreignField: "interviewId",
+        as: "evaluation",
+      },
+    },
+    { $match: { evaluation: { $size: 0 } } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "candidateId",
+        foreignField: "_id",
+        as: "candidate",
+        pipeline: [{ $project: { name: 1 } }],
+      },
+    },
+    { $unwind: "$candidate" },
+    { $sort: { scheduledAt: -1 } },
+    { $limit: limit },
+  ]);
+
+  return rows.map(serializePendingRow);
+}
+
+export async function countPendingInterviewerEvaluations(
+  interviewerId: string,
+): Promise<number> {
+  const interviewerOid = new mongoose.Types.ObjectId(interviewerId);
+
+  const result = await Interview.aggregate<{ total: number }>([
+    {
+      $match: {
+        interviewerId: interviewerOid,
+        status: "completed",
+      },
+    },
+    {
+      $lookup: {
+        from: "interviewevaluations",
+        localField: "_id",
+        foreignField: "interviewId",
+        as: "evaluation",
+      },
+    },
+    { $match: { evaluation: { $size: 0 } } },
+    { $count: "total" },
+  ]);
+
+  return result[0]?.total ?? 0;
+}
+
+export async function listCompletedInterviewerEvaluations(
+  interviewerId: string,
+  limit = 50,
+): Promise<SerializedCompletedEvaluation[]> {
+  const interviewerOid = new mongoose.Types.ObjectId(interviewerId);
+
+  const rows = await InterviewEvaluation.aggregate<CompletedEvaluationAggregate>([
+    { $match: { interviewerId: interviewerOid } },
+    { $sort: { submittedAt: -1 } },
+    { $limit: limit },
+    {
+      $lookup: {
+        from: "interviews",
+        localField: "interviewId",
+        foreignField: "_id",
+        as: "interview",
+        pipeline: [
+          {
+            $lookup: {
+              from: "users",
+              localField: "candidateId",
+              foreignField: "_id",
+              as: "candidate",
+              pipeline: [{ $project: { name: 1 } }],
+            },
+          },
+          { $unwind: "$candidate" },
+          { $project: { title: 1, scheduledAt: 1, candidate: 1 } },
+        ],
+      },
+    },
+    { $unwind: "$interview" },
+    {
+      $project: {
+        interviewId: "$interviewId",
+        score: 1,
+        submittedAt: 1,
+        interview: 1,
+      },
+    },
+  ]);
+
+  return rows.map(serializeCompletedRow);
+}
+
+export async function listInterviewerEvaluations(interviewerId: string) {
+  const [pending, completed] = await Promise.all([
+    listPendingInterviewerEvaluations(interviewerId),
+    listCompletedInterviewerEvaluations(interviewerId),
+  ]);
+  return { pending, completed };
+}
+
+export async function getOwnedInterviewEvaluation(
+  interviewId: string,
+  interviewerId: string,
+): Promise<SerializedInterviewEvaluation | null> {
+  if (!isValidObjectId(interviewId)) {
+    return null;
+  }
+
+  const evaluation = await InterviewEvaluation.findOne({
+    interviewId,
+    interviewerId: new mongoose.Types.ObjectId(interviewerId),
+  }).lean<{
+    _id: mongoose.Types.ObjectId;
+    interviewId: mongoose.Types.ObjectId;
+    score: number;
+    notes: string;
+    submittedAt: Date;
+  }>();
+
+  if (!evaluation) {
+    return null;
+  }
+
+  const interview = await Interview.findOne({
+    _id: interviewId,
+    interviewerId: new mongoose.Types.ObjectId(interviewerId),
+  })
+    .populate("candidateId", CANDIDATE_FIELDS)
+    .lean<InterviewLean>();
+
+  if (!interview) {
+    return null;
+  }
+
+  const serialized = serializeInterview(interview);
+  return {
+    interviewId: serialized.id,
+    candidateName: serialized.candidateName,
+    candidateInitials: serialized.candidateInitials,
+    title: serialized.title,
+    type: serialized.type,
+    formattedDate: serialized.formattedDate,
+    score: evaluation.score,
+    notes: evaluation.notes ?? "",
+    submittedAt: evaluation.submittedAt,
+    submittedAtLabel: formatInterviewDate(evaluation.submittedAt),
+  };
+}
+
+export type EvaluationFormContext = {
+  interviewId: string;
+  candidateName: string;
+  candidateInitials: string;
+  title: string;
+  type: InterviewType;
+  formattedDate: string;
+  formattedTime: string;
+  existing: SerializedInterviewEvaluation | null;
+};
+
+export async function getEvaluationFormContext(
+  interviewId: string,
+  interviewerId: string,
+): Promise<EvaluationFormContext | null> {
+  if (!isValidObjectId(interviewId)) {
+    return null;
+  }
+
+  const interview = await Interview.findOne({
+    _id: interviewId,
+    interviewerId: new mongoose.Types.ObjectId(interviewerId),
+    status: "completed",
+  })
+    .populate("candidateId", CANDIDATE_FIELDS)
+    .lean<InterviewLean>();
+
+  if (!interview) {
+    return null;
+  }
+
+  const serialized = serializeInterview(interview);
+  const existing = await getOwnedInterviewEvaluation(interviewId, interviewerId);
+
+  return {
+    interviewId: serialized.id,
+    candidateName: serialized.candidateName,
+    candidateInitials: serialized.candidateInitials,
+    title: serialized.title,
+    type: serialized.type,
+    formattedDate: serialized.formattedDate,
+    formattedTime: serialized.formattedTime,
+    existing,
+  };
 }

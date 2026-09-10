@@ -25,6 +25,7 @@ import {
 } from "../src/lib/interviewer/queries";
 import { INTERVIEW_STATUSES, INTERVIEW_TYPES } from "../src/models/Interview";
 import { Interview } from "../src/models/Interview";
+import { InterviewEvaluation } from "../src/models/InterviewEvaluation";
 import { User } from "../src/models/User";
 
 function assert(cond: unknown, msg: string) {
@@ -173,7 +174,16 @@ async function dbChecks() {
     metrics.completedCount === expectedCompleted,
     "dashboard completed count matches DB",
   );
-  assert(metrics.avgRating === null, "avg rating remains unavailable");
+
+  const avgFromDb = await InterviewEvaluation.aggregate<{ avgScore: number }>([
+    { $match: { interviewerId: kabir!._id } },
+    { $group: { _id: null, avgScore: { $avg: "$score" } } },
+  ]);
+  const expectedAvg =
+    avgFromDb[0]?.avgScore != null
+      ? Math.round(avgFromDb[0].avgScore)
+      : null;
+  assert(metrics.avgRating === expectedAvg, "dashboard avg rating matches evaluations");
 
   const listed = await listInterviewerInterviews(kabirId);
   assert(

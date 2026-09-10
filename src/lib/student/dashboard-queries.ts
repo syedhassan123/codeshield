@@ -6,6 +6,10 @@ import { Assessment } from "@/models/Assessment";
 import { Attempt } from "@/models/Attempt";
 import { CodingSubmission } from "@/models/CodingSubmission";
 import { Result } from "@/models/Result";
+import {
+  countStudentInterviews,
+  getStudentUpcomingInterviews,
+} from "@/lib/student/interview-queries";
 
 export type StudentDashboardStats = {
   assessmentsTaken: number;
@@ -15,6 +19,10 @@ export type StudentDashboardStats = {
   averageScorePercent: number | null;
   inProgressAttempts: number;
 };
+
+export type StudentDashboardInterview = Awaited<
+  ReturnType<typeof getStudentUpcomingInterviews>
+>[number];
 
 export type StudentDashboardAssessment = ReturnType<
   typeof serializeAssessment
@@ -115,7 +123,7 @@ function buildActivityFeed(options: {
 export async function getStudentDashboardData(studentId: string) {
   const studentOid = new mongoose.Types.ObjectId(studentId);
 
-  const [assessmentDocs, attempts, results, codingSolvedAgg, availableCount] =
+  const [assessmentDocs, attempts, results, codingSolvedAgg, availableCount, interviewCount, upcomingInterviews] =
     await Promise.all([
       Assessment.find(publishedAssessmentQuery(studentOid))
         .sort({ publishedAt: -1, updatedAt: -1 })
@@ -143,6 +151,8 @@ export async function getStudentDashboardData(studentId: string) {
         { $count: "count" },
       ]),
       Assessment.countDocuments(publishedAssessmentQuery(studentOid)),
+      countStudentInterviews(studentId),
+      getStudentUpcomingInterviews(studentId, 4),
     ]);
 
   const attemptByAssessment = new Map(
@@ -198,7 +208,7 @@ export async function getStudentDashboardData(studentId: string) {
   const stats: StudentDashboardStats = {
     assessmentsTaken: completedAttempts.length,
     codingSolved: codingSolvedAgg[0]?.count ?? 0,
-    interviews: 0,
+    interviews: interviewCount,
     certificates: gradedResults.length,
     averageScorePercent,
     inProgressAttempts,
@@ -207,6 +217,7 @@ export async function getStudentDashboardData(studentId: string) {
   return {
     stats,
     upcoming,
+    upcomingInterviews,
     performanceTrend: buildPerformanceTrend(attempts),
     activity: buildActivityFeed({ attempts, results }),
     availableAssessmentCount: availableCount,
