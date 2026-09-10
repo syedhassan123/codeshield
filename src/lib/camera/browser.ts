@@ -87,6 +87,81 @@ export async function openCameraStream(deviceId?: string): Promise<MediaStream> 
   return navigator.mediaDevices.getUserMedia(constraints);
 }
 
+export async function openCameraMicStream(): Promise<MediaStream> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("This browser does not support camera or microphone access.");
+  }
+  return navigator.mediaDevices.getUserMedia({
+    audio: true,
+    video: {
+      facingMode: "user",
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    },
+  });
+}
+
+export function describeVideoTrackSettings(stream: MediaStream | null) {
+  const track = stream?.getVideoTracks()[0];
+  if (!track) return "No camera track";
+  const settings = track.getSettings();
+  const width = settings.width;
+  const height = settings.height;
+  if (width && height) {
+    return `${width}×${height}`;
+  }
+  return "Camera active";
+}
+
+export function hasActiveAudioTrack(stream: MediaStream | null) {
+  return Boolean(
+    stream?.getAudioTracks().some((track) => track.readyState === "live"),
+  );
+}
+
+export function hasActiveVideoTrack(stream: MediaStream | null) {
+  return Boolean(
+    stream?.getVideoTracks().some((track) => track.readyState === "live"),
+  );
+}
+
+export function classifyMicError(error: unknown): {
+  code: "PERMISSION_DENIED" | "UNAVAILABLE" | "UNSUPPORTED" | "UNKNOWN";
+  message: string;
+} {
+  const name =
+    error && typeof error === "object" && "name" in error
+      ? String((error as { name?: string }).name)
+      : "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return {
+      code: "PERMISSION_DENIED",
+      message:
+        "Microphone access was denied. Please allow microphone permission and try again.",
+    };
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return {
+      code: "UNAVAILABLE",
+      message: "No usable microphone was found.",
+    };
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return {
+      code: "UNAVAILABLE",
+      message:
+        "Microphone is busy or unavailable. Close other apps using the mic and retry.",
+    };
+  }
+  return {
+    code: "UNKNOWN",
+    message:
+      error instanceof Error
+        ? error.message
+        : "Microphone could not be started. Please try again.",
+  };
+}
+
 export function stopMediaStream(stream: MediaStream | null | undefined) {
   if (!stream) return;
   for (const track of stream.getTracks()) {

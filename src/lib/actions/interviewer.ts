@@ -18,7 +18,22 @@ import {
   listInterviewerInterviews,
 } from "@/lib/interviewer/queries";
 import { submitOwnedInterviewEvaluation } from "@/lib/interviewer/evaluations";
+import {
+  completeOwnedInterview,
+  startOwnedInterview,
+} from "@/lib/interviewer/lifecycle";
 import { submitInterviewEvaluationSchema } from "@/lib/validators/interview-evaluation";
+
+function revalidateInterviewSurfaces() {
+  revalidatePath("/admin/interviews");
+  revalidatePath("/interviewer");
+  revalidatePath("/interviewer/interviews");
+  revalidatePath("/interviewer/candidates");
+  revalidatePath("/interviewer/evaluations");
+  revalidatePath("/student/interviews");
+  revalidatePath("/student");
+  revalidatePath("/student/profile");
+}
 
 export async function loadInterviewerDashboardAction() {
   const op = createServerOp({
@@ -208,6 +223,70 @@ export async function loadInterviewerEvaluationsAction() {
 
     const evaluations = await listInterviewerEvaluations(session.user.id);
     return op.respond(evaluations);
+  } catch (error) {
+    return op.respondError(error);
+  }
+}
+
+export async function startInterviewAction(interviewId: string) {
+  const op = createServerOp({
+    domain: "INTERVIEW",
+    operation: "START",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const session = await requireInterviewer();
+    op.auth(session.user);
+    op.allowed("interviewer start interview");
+
+    if (!isValidObjectId(interviewId)) {
+      throw new ActionError("Interview not found.");
+    }
+
+    await connectDB();
+
+    const interview = await startOwnedInterview(session.user.id, interviewId);
+
+    revalidateInterviewSurfaces();
+    revalidatePath(`/interviewer/room/${interviewId}`);
+    revalidatePath(`/interviewer/lobby/${interviewId}`);
+
+    return op.respond({ interviewId: interview._id.toString() });
+  } catch (error) {
+    return op.respondError(error);
+  }
+}
+
+export async function completeInterviewAction(interviewId: string) {
+  const op = createServerOp({
+    domain: "INTERVIEW",
+    operation: "COMPLETE",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const session = await requireInterviewer();
+    op.auth(session.user);
+    op.allowed("interviewer complete interview");
+
+    if (!isValidObjectId(interviewId)) {
+      throw new ActionError("Interview not found.");
+    }
+
+    await connectDB();
+
+    const interview = await completeOwnedInterview(
+      session.user.id,
+      interviewId,
+    );
+
+    revalidateInterviewSurfaces();
+    revalidatePath(`/interviewer/evaluations/${interviewId}`);
+    revalidatePath(`/interviewer/room/${interviewId}`);
+    revalidatePath(`/interviewer/lobby/${interviewId}`);
+
+    return op.respond({ interviewId: interview._id.toString() });
   } catch (error) {
     return op.respondError(error);
   }

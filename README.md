@@ -161,9 +161,29 @@ The Admin area now reads from MongoDB instead of `mock-data.ts`:
 - `/admin/students` — real student users with search/filter/pagination
 - `/admin/reports` — attempt/result/proctoring reports with filters, CSV export, printable PDF
 
+## Phase 15 — LiveKit video interviews
+
+Real-time Student ↔ Interviewer audio/video uses [LiveKit](https://livekit.io/). Configure in `.env.local`:
+
+```bash
+LIVEKIT_URL=wss://your-project.livekit.cloud
+LIVEKIT_API_KEY=your-api-key
+LIVEKIT_API_SECRET=your-api-secret
+```
+
+Room names derive from the canonical `Interview._id` (`interview:{id}`). Tokens are issued server-side at `/api/interviews/[id]/room-token` after ownership verification. **Never** put API secrets in `NEXT_PUBLIC_*`.
+
+Verify:
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase15-video-interview.ts
+npx tsx --env-file=.env.local scripts/verify-phase14-6-interview-e2e.ts
+```
+
 ## Still mock / future work
 
-- `/admin/interviews` and all interview/WebRTC pages
+- Interview room question list and local code/notes panels (static/local-only)
+- Interview recording — **deferred**
 - Student coding practice (`/student/coding`) — **deferred**
 - Certificates issuance
 - AI subjective evaluation assist
@@ -181,6 +201,8 @@ npx tsx --env-file=.env.local scripts/verify-phase11-ai-proctoring.ts
 npx tsx --env-file=.env.local scripts/verify-phase11-5-student-dashboard.ts
 npx tsx --env-file=.env.local scripts/verify-phase12-coding.ts
 npx tsx --env-file=.env.local scripts/verify-phase13-hardening.ts
+npx tsx --env-file=.env.local scripts/verify-phase14-6-interview-e2e.ts
+npx tsx --env-file=.env.local scripts/verify-phase15-video-interview.ts
 npx tsx --env-file=.env.local scripts/verify-production-submission-recording.ts
 ```
 
