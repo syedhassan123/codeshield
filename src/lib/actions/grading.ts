@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { ActionError, requireAdmin, requireStudent } from "@/lib/auth-guards";
+import { issueCertificateIfEligible } from "@/lib/certificates/issue";
 import { connectDB } from "@/lib/db";
 import {
   createServerOp,
@@ -424,6 +425,11 @@ export async function gradeQuestionAction(raw: unknown) {
       result.save({ validateModifiedOnly: true }),
     );
 
+    // Phase 16: this manual grade may be the one that flips evaluation to
+    // "completed" — check certificate eligibility here too, not just in
+    // finalizeAttempt (which only covers all-auto-graded exams).
+    await issueCertificateIfEligible(result);
+
     debugLog("GRADING", "saved", {
       attemptId: maskId(data.attemptId),
       questionId: maskId(data.questionId),
@@ -484,6 +490,10 @@ export async function completeEvaluationAction(attemptId: string) {
     result.lastGradedAt = new Date();
     result.evaluationCompletedAt = result.evaluationCompletedAt ?? new Date();
     await result.save();
+
+    // Phase 16: admin explicitly marking evaluation complete is another
+    // path to evaluationStatus === "completed" — check eligibility here too.
+    await issueCertificateIfEligible(result);
 
     debugLog("GRADING", "evaluation_completed", {
       attemptId: maskId(attemptId),

@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { ActionError } from "@/lib/auth-guards";
+import { issueCertificateIfEligible } from "@/lib/certificates/issue";
 import { evaluateAgainstTests } from "@/lib/coding/evaluate";
 import { debugLog, logAuthorization, maskId } from "@/lib/debug";
 import { recalculateResultScores } from "@/lib/exam/score";
@@ -342,6 +343,12 @@ export async function finalizeAttempt(
     evaluationStatus: scores.evaluationStatus.toUpperCase(),
     recordingsAbandoned: abandoned,
   });
+
+  // Phase 16: auto-issue a certificate if this Result finalized as a
+  // completed, passing evaluation (e.g. all-MCQ exams complete here;
+  // exams with pending subjective/coding grading complete later via
+  // gradeQuestionAction/completeEvaluationAction instead).
+  await issueCertificateIfEligible(result);
 
   return updated ?? (await Attempt.findById(live._id))!;
 }

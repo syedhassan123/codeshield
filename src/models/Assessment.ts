@@ -125,6 +125,19 @@ const AssessmentSchema = new Schema(
       type: AssessmentSecuritySchema,
       default: () => ({ ...DEFAULT_ASSESSMENT_SECURITY }),
     },
+    /**
+     * Certificate pass threshold override (percent, 0-100). Optional — when
+     * unset, certificate issuance (Phase 16) falls back to the global
+     * default in src/lib/certificates/config.ts. No admin UI to set this
+     * yet; the field exists so per-assessment thresholds are possible later
+     * without another migration.
+     */
+    passThreshold: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: null,
+    },
   },
   { timestamps: true },
 );

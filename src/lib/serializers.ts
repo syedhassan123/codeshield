@@ -1,6 +1,7 @@
 import type { AnswerDocument } from "@/models/Answer";
 import type { AssessmentDocument } from "@/models/Assessment";
 import type { AttemptDocument } from "@/models/Attempt";
+import type { CertificateDocument } from "@/models/Certificate";
 import type { QuestionDocument } from "@/models/Question";
 import type { ResultDocument } from "@/models/Result";
 import { normalizeAssessmentSecurity } from "@/types/assessment-security";
@@ -231,3 +232,20 @@ export function serializeResult(doc: ResultDocument) {
 }
 
 export type SerializedResult = ReturnType<typeof serializeResult>;
+
+export function serializeCertificate(doc: CertificateDocument) {
+  return {
+    id: doc._id.toString(),
+    resultId: doc.resultId.toString(),
+    attemptId: doc.attemptId.toString(),
+    assessmentId: doc.assessmentId.toString(),
+    assessmentTitle: doc.assessmentTitle,
+    score: doc.score,
+    passThreshold: doc.passThreshold,
+    certificateSerial: doc.certificateSerial,
+    issuedAt: toIso(doc.issuedAt),
+    status: doc.status,
+  };
+}
+
+export type SerializedCertificate = ReturnType<typeof serializeCertificate>;

@@ -4,6 +4,7 @@ import { formatRelativeTime } from "@/lib/admin/format";
 import { serializeAssessment } from "@/lib/serializers";
 import { Assessment } from "@/models/Assessment";
 import { Attempt } from "@/models/Attempt";
+import { Certificate } from "@/models/Certificate";
 import { CodingSubmission } from "@/models/CodingSubmission";
 import { Result } from "@/models/Result";
 import {
@@ -123,37 +124,44 @@ function buildActivityFeed(options: {
 export async function getStudentDashboardData(studentId: string) {
   const studentOid = new mongoose.Types.ObjectId(studentId);
 
-  const [assessmentDocs, attempts, results, codingSolvedAgg, availableCount, interviewCount, upcomingInterviews] =
-    await Promise.all([
-      Assessment.find(publishedAssessmentQuery(studentOid))
-        .sort({ publishedAt: -1, updatedAt: -1 })
-        .limit(4),
-      Attempt.find({ studentId: studentOid })
-        .select(
-          "_id assessmentId assessmentTitle status startedAt submittedAt",
-        )
-        .sort({ startedAt: -1 }),
-      Result.find({ studentId: studentOid })
-        .select(
-          "attemptId assessmentTitle finalScore totalMarks evaluationStatus submittedAt",
-        )
-        .sort({ submittedAt: -1 })
-        .limit(8),
-      CodingSubmission.aggregate<{ count: number }>([
-        {
-          $match: {
-            studentId: studentOid,
-            kind: "submit",
-            finalized: true,
-          },
+  const [
+    assessmentDocs,
+    attempts,
+    results,
+    codingSolvedAgg,
+    availableCount,
+    interviewCount,
+    upcomingInterviews,
+    certificateCount,
+  ] = await Promise.all([
+    Assessment.find(publishedAssessmentQuery(studentOid))
+      .sort({ publishedAt: -1, updatedAt: -1 })
+      .limit(4),
+    Attempt.find({ studentId: studentOid })
+      .select("_id assessmentId assessmentTitle status startedAt submittedAt")
+      .sort({ startedAt: -1 }),
+    Result.find({ studentId: studentOid })
+      .select(
+        "attemptId assessmentTitle finalScore totalMarks evaluationStatus submittedAt",
+      )
+      .sort({ submittedAt: -1 })
+      .limit(8),
+    CodingSubmission.aggregate<{ count: number }>([
+      {
+        $match: {
+          studentId: studentOid,
+          kind: "submit",
+          finalized: true,
         },
-        { $group: { _id: "$questionId" } },
-        { $count: "count" },
-      ]),
-      Assessment.countDocuments(publishedAssessmentQuery(studentOid)),
-      countStudentInterviews(studentId),
-      getStudentUpcomingInterviews(studentId, 4),
-    ]);
+      },
+      { $group: { _id: "$questionId" } },
+      { $count: "count" },
+    ]),
+    Assessment.countDocuments(publishedAssessmentQuery(studentOid)),
+    countStudentInterviews(studentId),
+    getStudentUpcomingInterviews(studentId, 4),
+    Certificate.countDocuments({ studentId: studentOid, status: "issued" }),
+  ]);
 
   const attemptByAssessment = new Map(
     attempts.map((attempt) => [attempt.assessmentId.toString(), attempt]),
@@ -209,7 +217,7 @@ export async function getStudentDashboardData(studentId: string) {
     assessmentsTaken: completedAttempts.length,
     codingSolved: codingSolvedAgg[0]?.count ?? 0,
     interviews: interviewCount,
-    certificates: gradedResults.length,
+    certificates: certificateCount,
     averageScorePercent,
     inProgressAttempts,
   };

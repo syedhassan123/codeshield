@@ -26,6 +26,7 @@ export default async function StudentLayout({
       fullscreenPrefixes={[
         "/student/exam/",
         "/student/code/",
+        "/student/certificates/",
       ]}
     >
       {children}

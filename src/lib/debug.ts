@@ -36,7 +36,8 @@ export type LogPrefix =
   | "HTTP"
   | "ERROR"
   | "SESSION"
-  | "INTERVIEW";
+  | "INTERVIEW"
+  | "CERTIFICATE";
 
 type DetailValue = string | number | boolean | null | undefined;
 export type LogDetails = Record<string, DetailValue>;
@@ -425,6 +426,7 @@ export function createServerOp(options: {
     | "CODING"
     | "SUBMISSION"
     | "INTERVIEW"
+    | "CERTIFICATE"
   >;
   operation: string;
   source?: "SERVER-ACTION" | "SERVER-COMPONENT" | "API";

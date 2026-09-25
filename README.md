@@ -82,6 +82,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | **11.5** | Student dashboard wired to real MongoDB data (stats, activity, assessments) |
 | **12** | Coding execution security hardening — isolated runner limits, authz, hidden tests, compile/timeout handling, duplicate-run guards |
 | **13** | Production hardening & end-to-end QA — attempt/submit/recording idempotency, auth isolation, timer authority, result uniqueness |
+| **15** | LiveKit real-time video interviews — room tokens, ownership-gated access, lobby camera/mic checks |
+| **16** | Certificate issuance — real data, auto-issued on graded pass, DB-unique idempotency, non-guessable serials |
 
 ## Phase 13 — Production hardening
 
@@ -180,12 +182,32 @@ npx tsx --env-file=.env.local scripts/verify-phase15-video-interview.ts
 npx tsx --env-file=.env.local scripts/verify-phase14-6-interview-e2e.ts
 ```
 
+## Phase 16 — Certificate issuance
+
+Replaces the mock `/student/certificates` page with real `Certificate` documents. No new external dependency (no PDF service, no LLM key).
+
+- **Auto-issue trigger:** any path that sets a `Result.evaluationStatus` to `"completed"` with a passing score — `finalizeAttempt` (all-auto-graded exams), `gradeQuestionAction`, and `completeEvaluationAction` (manually graded exams) all call `issueCertificateIfEligible`.
+- **Pass threshold resolution:** `Assessment.passThreshold` (percent, optional, no admin UI yet) if set, else the global default in `src/lib/certificates/config.ts` (`CERTIFICATE_DEFAULT_PASS_THRESHOLD` env, default `60`). Single resolution path — never duplicated.
+- **Retake policy (explicit):** one certificate **per passing Result**, not per assessment — a student who retakes and re-passes accumulates another certificate.
+- **Idempotency:** `Certificate.resultId` has a **DB-level unique index**; issuance treats a duplicate-key error as "already issued," so concurrent/retried completions can't double-issue.
+- **Serial numbers:** `CERT-{year}-{cryptographically-random}` — never sequential or derived from `_id`, so certificates can't be enumerated.
+- **Ownership:** the list page (`/student/certificates`) and the printable detail page (`/student/certificates/[id]`) each independently scope by the logged-in student — direct navigation to another student's certificate URL 404s.
+- **Download:** browser-native `window.print()` on the detail page (no PDF library) — same "printable" approach as Phase 9's report export, applied per-certificate instead of per-report.
+- **Backfill:** `scripts/backfill-phase16-certificates.ts` issues certificates for Results that completed before this phase shipped, using the same idempotent path.
+- **Out of scope:** interview-based certificates, admin certificate management/revocation UI (model fields exist, unused), and public third-party verification (e.g. `/verify/[serial]` for employers) — flagged as a likely future phase.
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase16-certificates.ts
+npx tsx --env-file=.env.local scripts/backfill-phase16-certificates.ts
+```
+
 ## Still mock / future work
 
 - Interview room question list and local code/notes panels (static/local-only)
 - Interview recording — **deferred**
 - Student coding practice (`/student/coding`) — **deferred**
-- Certificates issuance
+- Public/third-party certificate verification (no `/verify/[serial]` endpoint yet)
+- Admin certificate management/revocation UI
 - AI subjective evaluation assist
 - Live WebSocket monitoring (admin monitoring uses polling + overdue expiry)
 - External LLM-generated summaries (Phase 11 uses rule-based automated review text)
@@ -203,6 +225,7 @@ npx tsx --env-file=.env.local scripts/verify-phase12-coding.ts
 npx tsx --env-file=.env.local scripts/verify-phase13-hardening.ts
 npx tsx --env-file=.env.local scripts/verify-phase14-6-interview-e2e.ts
 npx tsx --env-file=.env.local scripts/verify-phase15-video-interview.ts
+npx tsx --env-file=.env.local scripts/verify-phase16-certificates.ts
 npx tsx --env-file=.env.local scripts/verify-production-submission-recording.ts
 ```
 

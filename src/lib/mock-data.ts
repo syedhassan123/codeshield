@@ -73,14 +73,6 @@ export const mockResults = [
   { assessment: "Aptitude Round 1", score: 88, result: "Passed", time: "30m", date: "2026-05-08" },
 ];
 
-export const mockCertificates = [
-  { title: "Python Foundations", issued: "May 2026", score: 92 },
-  { title: "SQL Mastery", issued: "May 2026", score: 78 },
-  { title: "Networking Essentials", issued: "May 2026", score: 64 },
-  { title: "Aptitude Round 1", issued: "May 2026", score: 88 },
-  { title: "English Proficiency", issued: "Apr 2026", score: 81 },
-];
-
 export const mockNotifications = [
   { text: "Python Foundations is live", time: "2h ago" },
   { text: "Interview slot confirmed", time: "5h ago" },
