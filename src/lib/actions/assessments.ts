@@ -22,6 +22,7 @@ import {
   QUESTION_TYPE_MISMATCH_ERROR,
   questionMatchesAssessmentType,
 } from "@/lib/assessment-question-type";
+import { getPlatformSecurityDefaults } from "@/lib/settings/queries";
 import {
   DEFAULT_ASSESSMENT_SECURITY,
   normalizeAssessmentSecurity,
@@ -186,8 +187,11 @@ export async function createAssessmentAction(raw: unknown) {
     );
     const code = `ASM-${seq}`;
 
+    // The assessment create form has no security UI today, so data.security
+    // is always undefined here in practice — this platform-level default
+    // (admin-configurable at /admin/settings) is what actually takes effect.
     const security = normalizeAssessmentSecurity(
-      data.security ?? DEFAULT_ASSESSMENT_SECURITY,
+      data.security ?? (await getPlatformSecurityDefaults()),
     );
 
     const doc = await op.runMongo("creating assessment", () =>

@@ -71,6 +71,9 @@ export default async function StudentCertificateDetailPage({
           <p className="text-[10px] text-muted-foreground mt-8 font-mono">
             Certificate ID: {certificate.certificateSerial}
           </p>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Verify at yourdomain.com/verify/{certificate.certificateSerial}
+          </p>
         </div>
       </div>
     </div>

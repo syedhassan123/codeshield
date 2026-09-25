@@ -211,6 +211,9 @@ export default async function HomePage({
         <div className="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-muted-foreground">
           <div>CodeShield AI © 2026</div>
           <div className="flex gap-4 text-xs font-semibold">
+            <Link href="/verify" className="hover:text-foreground">
+              Verify a certificate
+            </Link>
             <span>SOC2-aligned</span>
             <span>GDPR-ready</span>
           </div>

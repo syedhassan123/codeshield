@@ -8,6 +8,7 @@ const nav: NavItemConfig[] = [
   { href: "/admin/questions", label: "Question Bank", icon: "BookOpen" },
   { href: "/admin/students", label: "Students", icon: "Users" },
   { href: "/admin/results", label: "Results", icon: "Trophy" },
+  { href: "/admin/certificates", label: "Certificates", icon: "Award" },
   { href: "/admin/interviews", label: "Interviews", icon: "Video" },
   { href: "/admin/monitoring", label: "AI Monitoring", icon: "ShieldAlert" },
   { href: "/admin/analytics", label: "Analytics", icon: "BarChart3" },

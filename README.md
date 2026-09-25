@@ -84,6 +84,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | **13** | Production hardening & end-to-end QA — attempt/submit/recording idempotency, auth isolation, timer authority, result uniqueness |
 | **15** | LiveKit real-time video interviews — room tokens, ownership-gated access, lobby camera/mic checks |
 | **16** | Certificate issuance — real data, auto-issued on graded pass, DB-unique idempotency, non-guessable serials |
+| **17** | Public certificate verification (`/verify`) + admin certificate management/revocation |
+| **18** | Platform settings — real persistence for `/admin/settings`, wired into new-assessment security defaults |
 
 ## Phase 13 — Production hardening
 
@@ -201,16 +203,41 @@ npx tsx --env-file=.env.local scripts/verify-phase16-certificates.ts
 npx tsx --env-file=.env.local scripts/backfill-phase16-certificates.ts
 ```
 
+## Phase 17 — Certificate verification + admin management
+
+Extends Phase 16 with the two things deliberately left out of scope there.
+
+- **Public verification:** `/verify` (search form) and `/verify/[serial]` (result) — unauthenticated, no login required. Looks up by `certificateSerial` only (never a raw Mongo id). Returns the minimal fields an employer needs — student name, assessment title, score, issued date — and never returns `revokedReason` (may contain internal admin notes) or the student's email/internal ids. "Not found" and "revoked" are distinct outcomes so a real revoked certificate doesn't look like a typo, without leaking more than that.
+- **Admin management:** `/admin/certificates` — search/filter by status, revoke (with a required reason, stored on the certificate) and reinstate. Both actions are idempotent (revoking an already-revoked certificate, or reinstating an already-issued one, is a no-op, not an error).
+- Revoking a certificate automatically removes it from the student's `/student/certificates` list and dashboard count — both already filter on `status: "issued"` from Phase 16, so no extra wiring was needed there.
+- Linked from the student's printable certificate (Phase 16) and the landing page footer for discoverability.
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase17-certificate-admin-verification.ts
+```
+
+## Phase 18 — Platform settings
+
+`/admin/settings` was previously 100% decorative — every field was an uncontrolled `defaultValue`/`defaultChecked`, and "Save settings" had no `onClick` at all. Now backed by a real singleton `PlatformSettings` document.
+
+- **Organization / Notifications / Branding:** persisted as admin preferences. Notifications and Branding are stored only — no delivery integration or theme engine reads them yet (flagged in the UI itself with an inline hint).
+- **Security & Proctoring — 3 of 6 toggles are functionally wired, not just stored:** "Enforce face verification," "Block tab switching," and "Disable copy/paste" map directly to `Assessment.security.requireFaceDetection` / `.monitorTabSwitching` / `.blockCopyPaste` and become the **default security applied to every newly created assessment** (`createAssessmentAction` in `src/lib/actions/assessments.ts`) — meaningful because the assessment create form has no per-assessment security UI today, so this platform default always takes effect. "Detect dev tools," "Auto-submit after 3 violations," and "Allow paste in coding test" are persisted but have no enforcement engine yet — labeled as such in the UI.
+- **Singleton, not a growing collection:** `PlatformSettings.key` has a unique index; saves always upsert the one document, never create a second.
+- Existing/legacy assessments are untouched — this only changes the *default* used when `security` isn't explicitly provided at creation time.
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase18-platform-settings.ts
+```
+
 ## Still mock / future work
 
 - Interview room question list and local code/notes panels (static/local-only)
-- Interview recording — **deferred**
+- Interview recording — **deferred** (needs LiveKit configured)
 - Student coding practice (`/student/coding`) — **deferred**
-- Public/third-party certificate verification (no `/verify/[serial]` endpoint yet)
-- Admin certificate management/revocation UI
 - AI subjective evaluation assist
 - Live WebSocket monitoring (admin monitoring uses polling + overdue expiry)
 - External LLM-generated summaries (Phase 11 uses rule-based automated review text)
+- Dev-tools detection, violation-based auto-submit, and coding-editor paste-blocking enforcement (Phase 18 stores these preferences but does not yet enforce them)
 
 ## Verification scripts
 
@@ -226,6 +253,8 @@ npx tsx --env-file=.env.local scripts/verify-phase13-hardening.ts
 npx tsx --env-file=.env.local scripts/verify-phase14-6-interview-e2e.ts
 npx tsx --env-file=.env.local scripts/verify-phase15-video-interview.ts
 npx tsx --env-file=.env.local scripts/verify-phase16-certificates.ts
+npx tsx --env-file=.env.local scripts/verify-phase17-certificate-admin-verification.ts
+npx tsx --env-file=.env.local scripts/verify-phase18-platform-settings.ts
 npx tsx --env-file=.env.local scripts/verify-production-submission-recording.ts
 ```
 
