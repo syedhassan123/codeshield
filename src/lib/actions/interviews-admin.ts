@@ -12,6 +12,7 @@ import { ActionError, requireAdmin } from "@/lib/auth-guards";
 import { connectDB } from "@/lib/db";
 import { createServerOp } from "@/lib/debug";
 import { isValidObjectId } from "@/lib/interviewer/queries";
+import { notifyInterviewScheduled } from "@/lib/notifications/events";
 import {
   cancelInterviewSchema,
   createInterviewSchema,
@@ -73,6 +74,13 @@ export async function createInterviewAction(raw: unknown) {
     });
 
     revalidateInterviewSurfaces();
+
+    // Phase 20: notify both the candidate and the assigned interviewer.
+    await notifyInterviewScheduled({
+      candidateId: doc.candidateId,
+      interviewerId: doc.interviewerId,
+      interviewTitle: doc.title,
+    });
 
     const interview = await getAdminInterview(doc._id.toString());
     return op.respond({ interview });

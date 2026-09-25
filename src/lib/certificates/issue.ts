@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import mongoose from "mongoose";
 import { debugLog } from "@/lib/debug";
 import { resolvePassThreshold } from "@/lib/certificates/config";
+import { notifyCertificateIssued } from "@/lib/notifications/events";
 import { Assessment } from "@/models/Assessment";
 import { Certificate, type CertificateDocument } from "@/models/Certificate";
 import type { ResultDocument } from "@/models/Result";
@@ -90,6 +91,14 @@ export async function issueCertificateIfEligible(
       resultId: result._id.toString().slice(0, 8),
       score: percent.toFixed(1),
       passThreshold,
+    });
+
+    // Phase 20: notify the student in-app. Best-effort — never blocks
+    // issuance if it fails (see createNotification).
+    await notifyCertificateIssued({
+      studentId: result.studentId,
+      certificateId: certificate._id.toString(),
+      assessmentTitle: result.assessmentTitle,
     });
 
     return { certificate, created: true };

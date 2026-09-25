@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { notifyCertificateRevoked } from "@/lib/notifications/events";
 import { Certificate, type CertificateStatus } from "@/models/Certificate";
 import { User } from "@/models/User";
 
@@ -115,6 +116,13 @@ export async function revokeCertificate(options: {
   certificate.revokedBy = new mongoose.Types.ObjectId(options.adminId);
   certificate.revokedReason = options.reason;
   await certificate.save();
+
+  // Phase 20: notify the student in-app. Best-effort.
+  await notifyCertificateRevoked({
+    studentId: certificate.studentId,
+    assessmentTitle: certificate.assessmentTitle,
+  });
+
   return certificate;
 }
 

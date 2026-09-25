@@ -18,8 +18,10 @@ const initial: AuthActionState = {};
 
 export function AuthPanel({
   verifiedBanner = false,
+  resetBanner = false,
 }: {
   verifiedBanner?: boolean;
+  resetBanner?: boolean;
 }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [loginState, loginFormAction, loginPending] = useActionState(
@@ -143,6 +145,11 @@ export function AuthPanel({
         {verifiedBanner && mode === "signin" && !error && (
           <div className="text-xs font-semibold text-primary bg-primary-soft px-3 py-2 rounded-lg">
             Email verified successfully. Please log in to continue.
+          </div>
+        )}
+        {resetBanner && mode === "signin" && !error && (
+          <div className="text-xs font-semibold text-primary bg-primary-soft px-3 py-2 rounded-lg">
+            Password updated. Sign in with your new password.
           </div>
         )}
 

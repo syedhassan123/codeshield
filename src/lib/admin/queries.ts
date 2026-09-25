@@ -48,6 +48,27 @@ function monthsAgo(months: number) {
   return date;
 }
 
+function startOfWeek(date: Date) {
+  const next = startOfDay(date);
+  next.setDate(next.getDate() - next.getDay());
+  return next;
+}
+
+function weeksAgo(weeks: number) {
+  const date = startOfWeek(new Date());
+  date.setDate(date.getDate() - weeks * 7);
+  return date;
+}
+
+/** Local calendar key. Avoids UTC `toISOString()` shifting the day. */
+function localDateKey(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+
 export type AdminDashboardStats = {
   totalStudents: number;
   activeAssessments: number;
@@ -215,6 +236,89 @@ export async function getUserGrowthChart(): Promise<GrowthPoint[]> {
     });
   }
 
+  return points;
+}
+
+/** Average completed-result score (%), one point per week for the last 8 weeks. */
+export async function getWeeklyPerformanceChart(): Promise<ChartPoint[]> {
+  const from = weeksAgo(7);
+  const results = await Result.find({
+    evaluationStatus: "completed",
+    totalMarks: { $gt: 0 },
+    submittedAt: { $gte: from },
+  }).select("submittedAt finalScore totalMarks");
+
+  const buckets = new Map<string, { sum: number; count: number }>();
+  for (const result of results) {
+    const key = localDateKey(startOfWeek(result.submittedAt));
+    const bucket = buckets.get(key) ?? { sum: 0, count: 0 };
+    bucket.sum += (result.finalScore / result.totalMarks) * 100;
+    bucket.count += 1;
+    buckets.set(key, bucket);
+  }
+
+  const points: ChartPoint[] = [];
+  for (let i = 7; i >= 0; i -= 1) {
+    const start = weeksAgo(i);
+    const bucket = buckets.get(localDateKey(start));
+    points.push({
+      name: `${MONTH_NAMES[start.getMonth()]} ${start.getDate()}`,
+      value: bucket ? Math.round(bucket.sum / bucket.count) : 0,
+    });
+  }
+  return points;
+}
+
+/** Average completed-result score (%) grouped by the title stored on the result.
+ * Uses assessmentTitle (denormalized) so scores still chart after an assessment
+ * document is removed. */
+export async function getSkillDistributionChart(): Promise<ChartPoint[]> {
+  const results = await Result.find({
+    evaluationStatus: "completed",
+    totalMarks: { $gt: 0 },
+  }).select("assessmentTitle finalScore totalMarks");
+
+  const buckets = new Map<string, { sum: number; count: number }>();
+  for (const result of results) {
+    const title = result.assessmentTitle?.trim();
+    if (!title) continue;
+    const bucket = buckets.get(title) ?? { sum: 0, count: 0 };
+    bucket.sum += (result.finalScore / result.totalMarks) * 100;
+    bucket.count += 1;
+    buckets.set(title, bucket);
+  }
+
+  return [...buckets.entries()]
+    .map(([title, bucket]) => ({
+      name: title,
+      value: Math.round(bucket.sum / bucket.count),
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
+}
+
+/** Violation events per day for the last 7 days. */
+export async function getSecurityEventTrendChart(): Promise<ChartPoint[]> {
+  const from = daysAgo(6);
+  const events = await SecurityEvent.find({
+    eventType: { $in: [...SECURITY_VIOLATION_EVENT_TYPES] },
+    timestamp: { $gte: from },
+  }).select("timestamp");
+
+  const countByDay = new Map<string, number>();
+  for (const event of events) {
+    const key = localDateKey(event.timestamp);
+    countByDay.set(key, (countByDay.get(key) ?? 0) + 1);
+  }
+
+  const points: ChartPoint[] = [];
+  for (let i = 6; i >= 0; i -= 1) {
+    const date = daysAgo(i);
+    points.push({
+      name: DAY_NAMES[date.getDay()],
+      value: countByDay.get(localDateKey(date)) ?? 0,
+    });
+  }
   return points;
 }
 

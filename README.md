@@ -86,6 +86,10 @@ Open [http://localhost:3000](http://localhost:3000).
 | **16** | Certificate issuance — real data, auto-issued on graded pass, DB-unique idempotency, non-guessable serials |
 | **17** | Public certificate verification (`/verify`) + admin certificate management/revocation |
 | **18** | Platform settings — real persistence for `/admin/settings`, wired into new-assessment security defaults |
+| **19** | Live admin monitoring — Server-Sent Events push feed replaces 30s polling on `/admin/monitoring` |
+| **20** | Real in-app notifications — shared bell/dropdown across admin, student, and interviewer portals |
+| **21** | Admin analytics — `/admin/analytics` charts read real MongoDB series |
+| **22** | Password reset — `/forgot-password` issues a 6-digit OTP and updates the hash |
 
 ## Phase 13 — Production hardening
 
@@ -161,7 +165,7 @@ npx tsx --env-file=.env.local scripts/verify-phase10-proctoring.ts
 The Admin area now reads from MongoDB instead of `mock-data.ts`:
 
 - `/admin` — stat cards, charts, recent security alerts, recent assessments
-- `/admin/monitoring` — active attempts, security event stream (30s refresh)
+- `/admin/monitoring` — active attempts, security event stream (live push as of Phase 19; was 30s refresh)
 - `/admin/students` — real student users with search/filter/pagination
 - `/admin/reports` — attempt/result/proctoring reports with filters, CSV export, printable PDF
 
@@ -229,13 +233,70 @@ npx tsx --env-file=.env.local scripts/verify-phase17-certificate-admin-verificat
 npx tsx --env-file=.env.local scripts/verify-phase18-platform-settings.ts
 ```
 
+## Phase 19 — Live admin monitoring (SSE push)
+
+`/admin/monitoring` polled `getAdminMonitoringAction()` on a plain 30-second `setInterval`. The underlying data was already real (Phase 9) — this phase only changes *how* it's delivered. No new dependency and no LiveKit/LLM keys needed: native browser `EventSource` + a streaming Next.js Route Handler.
+
+- **`src/app/api/admin/monitoring/stream/route.ts`** — admin-gated (`requireAdmin()`, checked once when the connection opens, not per tick). Responds with `Content-Type: text/event-stream` over a `ReadableStream`, re-reading MongoDB every 5s via the same query functions the old action used (`getMonitoringSummary`, `getActiveMonitoringSessions`, `getMonitoringEventStream`, `getMonitoringSystemHealth`) and pushing a `monitoring` event with the fresh payload. The interval is cleared via `req.signal`'s `abort` listener when the client disconnects — no orphaned timers.
+- **Deliberately no Mongo change streams** — those require a replica set, which a plain standalone/local MongoDB doesn't provide. Server-side interval polling (now 5s instead of the client's old 30s) is the compatible, zero-infra choice.
+- **Client (`admin-monitoring-client.tsx`)** subscribes via `new EventSource(...)` instead of `setInterval` + server action. Auto-reconnects (3s backoff) on a dropped connection; the header badge reflects real connection state (`● LIVE` / `○ Reconnecting…`) instead of a static label.
+- **Naming gotcha avoided:** server-side query failures are pushed as a custom `monitoring_error` event, deliberately *not* named `error` — `EventSource` treats any event named `error` (including custom server-sent ones) as a connection-level failure and fires `onerror`, which would incorrectly trigger the reconnect path for a mere query hiccup instead of an actual dropped connection.
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase19-live-monitoring.ts
+```
+
+## Phase 20 — Real in-app notifications
+
+The bell icon in `src/components/layout/workspace-shell.tsx` (shared header for **all three portals** — admin, student, interviewer) previously had no `onClick` at all, and its red "unread" dot was hardcoded to always show. Now backed by a real `Notification` model, wired into existing events — no new dependency, no LiveKit/LLM key.
+
+- **Deliberately separate from Phase 18's notification settings** — `emailAlerts`/`smsAlerts`/`webhookIntegrations`/`slackNotifications` remain stored-only preferences with no external delivery. This is a different, additive feature: real in-app events for the actual signed-in user.
+- **Hooked into real event points, not a new "notifications" admin surface:**
+  - `issueCertificateIfEligible` (Phase 16) → student gets `CERTIFICATE_ISSUED`, linking straight to the certificate.
+  - `revokeCertificate` (Phase 17) → student gets `CERTIFICATE_REVOKED`.
+  - `finalizeAttempt` (auto-graded exams) and both manual-grading completion paths (`gradeQuestionAction`, `completeEvaluationAction`) → student gets `RESULT_READY`, exactly once per genuine pending→completed transition (guarded so re-grading an already-completed result doesn't spam a duplicate).
+  - `createInterviewAction` → both the candidate and the assigned interviewer get `INTERVIEW_SCHEDULED`.
+- **Best-effort writes:** `createNotification` catches and logs its own failures rather than throwing — a notification bug must never break certificate issuance, grading, or interview scheduling.
+- **IDOR-safe:** `markNotificationRead` scopes by `{ _id, userId }`; a different user's mark-read call is a silent no-op, not an error or leak.
+- **UI:** the bell badge reflects a real unread count (polled every 30s + refreshed on open); the dropdown lists recent notifications with relative timestamps, click-to-navigate-and-mark-read, and "mark all read."
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase20-notifications.ts
+```
+
+## Phase 21 — Admin analytics
+
+`/admin/analytics` rendered the same chart components as the dashboard, but with no data, so every panel stayed on its empty state. It now loads real MongoDB series. No new dependency.
+
+- **Performance Trend** — average completed-result score (%) for each of the last 8 weeks (`getWeeklyPerformanceChart`). Weeks with no completed results are `0`.
+- **Skill Distribution** — average completed-result score grouped by the assessment title stored on the result (top 6). Uses that denormalized title so historical scores still chart if the assessment document is gone. Distinct from the language chart.
+- **User Growth** — the dashboard's existing 8-month student/interviewer registration series.
+- **Coding Language Mix** — finalized coding submissions by language.
+- **Security Trend** — violation events per day for the last 7 days.
+- Chart tooltips take a `seriesName` so "Avg score" and "Violations" are labeled correctly. The dashboard keeps the previous default labels.
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase21-analytics.ts
+```
+
+## Phase 22 — Password reset
+
+`/forgot-password` was a dead form (uncontrolled email, `type="button"` with no handler). It now uses the existing OTP pipeline. No new dependency.
+
+- **Request:** email only. Unknown addresses and suspended accounts get the same copy — "If an account exists for that email, we sent a code." — and never create an `EmailOtp`. Active accounts get a 6-digit `password_reset` code (10-minute TTL, 60s resend cooldown, 5 sends/hour, 5 attempts). SMTP sends when configured; otherwise the code is logged server-side only and is never returned to the browser.
+- **Confirm:** code + new password + confirmation in one action. The hash is written only after the code verifies. bcrypt cost matches registration (12). The used code is consumed and cannot be reused. The user is not signed in; they return to `/?reset=1`.
+- **Isolation:** `password_reset` codes do not invalidate registration/login codes, and verifying a reset code does not set `emailVerified` or `otpLoginVerifiedAt`.
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase22-password-reset.ts
+```
+
 ## Still mock / future work
 
 - Interview room question list and local code/notes panels (static/local-only)
 - Interview recording — **deferred** (needs LiveKit configured)
 - Student coding practice (`/student/coding`) — **deferred**
 - AI subjective evaluation assist
-- Live WebSocket monitoring (admin monitoring uses polling + overdue expiry)
 - External LLM-generated summaries (Phase 11 uses rule-based automated review text)
 - Dev-tools detection, violation-based auto-submit, and coding-editor paste-blocking enforcement (Phase 18 stores these preferences but does not yet enforce them)
 
@@ -255,6 +316,10 @@ npx tsx --env-file=.env.local scripts/verify-phase15-video-interview.ts
 npx tsx --env-file=.env.local scripts/verify-phase16-certificates.ts
 npx tsx --env-file=.env.local scripts/verify-phase17-certificate-admin-verification.ts
 npx tsx --env-file=.env.local scripts/verify-phase18-platform-settings.ts
+npx tsx --env-file=.env.local scripts/verify-phase19-live-monitoring.ts
+npx tsx --env-file=.env.local scripts/verify-phase20-notifications.ts
+npx tsx --env-file=.env.local scripts/verify-phase21-analytics.ts
+npx tsx --env-file=.env.local scripts/verify-phase22-password-reset.ts
 npx tsx --env-file=.env.local scripts/verify-production-submission-recording.ts
 ```
 

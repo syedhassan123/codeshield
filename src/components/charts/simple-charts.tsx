@@ -61,10 +61,12 @@ export function ActivityAreaChart({
   data = [],
   height = "md",
   emptyLabel = "No attempt activity in the last 7 days.",
+  seriesName = "Activity",
 }: {
   data?: ChartPoint[];
   height?: ChartHeight;
   emptyLabel?: string;
+  seriesName?: string;
 }) {
   return (
     <div className={heightClass[height]}>
@@ -94,7 +96,7 @@ export function ActivityAreaChart({
             <Area
               type="monotone"
               dataKey="value"
-              name="Activity"
+              name={seriesName}
               stroke="#4f55f3"
               fill="url(#activity)"
               strokeWidth={2}
@@ -164,9 +166,15 @@ export function GrowthBarChart({
 export function LanguageBarChart({
   data = [],
   height = "sm",
+  seriesName = "Submissions",
+  emptyLabel = "No coding submissions yet.",
+  axisWidth = 72,
 }: {
   data?: ChartPoint[];
   height?: ChartHeight;
+  seriesName?: string;
+  emptyLabel?: string;
+  axisWidth?: number;
 }) {
   return (
     <div className={heightClass[height]}>
@@ -191,12 +199,12 @@ export function LanguageBarChart({
               tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
               axisLine={false}
               tickLine={false}
-              width={72}
+              width={axisWidth}
             />
             <Tooltip content={<ChartTooltip />} />
             <Bar
               dataKey="value"
-              name="Submissions"
+              name={seriesName}
               fill="#436df7"
               radius={[0, 4, 4, 0]}
               maxBarSize={20}
@@ -205,9 +213,49 @@ export function LanguageBarChart({
         </ResponsiveContainer>
       ) : (
         <div className="h-full flex items-center justify-center text-sm text-muted-foreground px-4 text-center">
-          No coding submissions yet.
+          {emptyLabel}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Horizontal score bars with full labels. Used where a Recharts axis would clip long names. */
+export function ScoreBarList({
+  data = [],
+  emptyLabel = "No completed results yet.",
+}: {
+  data?: ChartPoint[];
+  emptyLabel?: string;
+}) {
+  if (!data.length) {
+    return (
+      <div className="h-44 flex items-center justify-center text-sm text-muted-foreground px-4 text-center">
+        {emptyLabel}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 py-1">
+      {data.map((point) => (
+        <div key={point.name}>
+          <div className="text-xs font-semibold text-foreground mb-1.5" title={point.name}>
+            {point.name}
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary"
+                style={{ width: `${Math.max(0, Math.min(100, point.value))}%` }}
+              />
+            </div>
+            <span className="text-xs text-muted-foreground tabular-nums shrink-0 w-9 text-right">
+              {point.value}%
+            </span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

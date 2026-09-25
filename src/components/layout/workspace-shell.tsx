@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Bell, LogOut, Search } from "lucide-react";
 import { BrandMark } from "@/components/layout/brand-mark";
 import {
@@ -10,9 +10,27 @@ import {
   type NavItemConfig,
 } from "@/components/layout/nav-icons";
 import { logoutAction } from "@/lib/actions/auth";
+import {
+  getNotificationsAction,
+  markAllNotificationsReadAction,
+  markNotificationReadAction,
+} from "@/lib/actions/notifications";
+import { formatRelativeTime } from "@/lib/admin/format";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { cn, initials } from "@/lib/utils";
+
+type NotificationItem = {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  link: string | null;
+  read: boolean;
+  createdAt: string;
+};
+
+const NOTIFICATIONS_POLL_MS = 30000;
 
 export type NavItem = NavItemConfig;
 
@@ -28,6 +46,7 @@ export function WorkspaceShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -35,6 +54,62 @@ export function WorkspaceShell({
     startTransition(async () => {
       await logoutAction();
     });
+  };
+
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  const loadNotifications = () => {
+    void (async () => {
+      const result = await getNotificationsAction();
+      if ("notifications" in result) {
+        setNotifications(result.notifications as NotificationItem[]);
+        setUnreadCount(result.unreadCount);
+      }
+    })();
+  };
+
+  useEffect(() => {
+    loadNotifications();
+    const timer = window.setInterval(loadNotifications, NOTIFICATIONS_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const onClickOutside = (event: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [notifOpen]);
+
+  const handleToggleNotifications = () => {
+    const opening = !notifOpen;
+    setNotifOpen(opening);
+    if (opening) loadNotifications();
+  };
+
+  const handleNotificationClick = (item: NotificationItem) => {
+    setNotifOpen(false);
+    if (!item.read) {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === item.id ? { ...n, read: true } : n)),
+      );
+      setUnreadCount((count) => Math.max(0, count - 1));
+      void markNotificationReadAction(item.id);
+    }
+    if (item.link) router.push(item.link);
+  };
+
+  const handleMarkAllRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
+    void markAllNotificationsReadAction();
   };
 
   return (
@@ -94,10 +169,73 @@ export function WorkspaceShell({
               className="bg-transparent outline-none text-sm flex-1 min-w-0 placeholder:text-muted-foreground focus-visible:ring-0"
             />
           </div>
-          <button className="relative w-9 h-9 rounded-lg hover:bg-muted flex items-center justify-center">
-            <Bell className="w-4 h-4 text-muted-foreground" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-danger" />
-          </button>
+          <div className="relative" ref={notifRef}>
+            <button
+              type="button"
+              onClick={handleToggleNotifications}
+              aria-label="Notifications"
+              aria-expanded={notifOpen}
+              className="relative w-9 h-9 rounded-lg hover:bg-muted flex items-center justify-center"
+            >
+              <Bell className="w-4 h-4 text-muted-foreground" />
+              {unreadCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-danger" />
+              )}
+            </button>
+
+            {notifOpen && (
+              <div className="absolute right-0 mt-2 w-80 max-h-[420px] overflow-y-auto rounded-xl border border-border bg-card shadow-elevated z-40">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                  <span className="text-sm font-semibold">Notifications</span>
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleMarkAllRead}
+                      className="text-xs font-semibold text-primary hover:underline"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+                {notifications.length ? (
+                  <div className="divide-y divide-border">
+                    {notifications.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => handleNotificationClick(item)}
+                        className={cn(
+                          "w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors",
+                          !item.read && "bg-primary/5",
+                        )}
+                      >
+                        <div className="flex items-start gap-2">
+                          {!item.read && (
+                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold truncate">
+                              {item.title}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                              {item.message}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground mt-1">
+                              {formatRelativeTime(item.createdAt)}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-4 py-8 text-sm text-muted-foreground text-center">
+                    No notifications yet.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-3 pl-3 border-l border-border">
             <div className="text-right hidden sm:block">
               <div className="text-sm font-semibold leading-tight">{userName}</div>

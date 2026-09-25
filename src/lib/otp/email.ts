@@ -5,17 +5,27 @@ export async function sendOtpEmail(options: {
   to: string;
   code: string;
   name?: string;
+  kind?: "verification" | "password_reset";
 }) {
   const from =
     process.env.EMAIL_FROM ||
     process.env.SMTP_FROM ||
     "CodeShield AI <noreply@codeshield.ai>";
 
-  const subject = "Your CodeShield verification code";
+  const isReset = options.kind === "password_reset";
+  const subject = isReset
+    ? "Your CodeShield password reset code"
+    : "Your CodeShield verification code";
+  const heading = isReset ? "Password reset" : "CodeShield verification";
+  const lead = isReset
+    ? "Use this code to reset your password:"
+    : "Your verification code is:";
   const text = [
     `Hi${options.name ? ` ${options.name}` : ""},`,
     "",
-    `Your verification code is: ${options.code}`,
+    isReset
+      ? `Your password reset code is: ${options.code}`
+      : `Your verification code is: ${options.code}`,
     "",
     "This code expires in 10 minutes.",
     "If you did not request this, you can ignore this email.",
@@ -23,9 +33,9 @@ export async function sendOtpEmail(options: {
 
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.5">
-      <h2>CodeShield verification</h2>
+      <h2>${heading}</h2>
       <p>Hi${options.name ? ` ${options.name}` : ""},</p>
-      <p>Your verification code is:</p>
+      <p>${lead}</p>
       <p style="font-size:28px;font-weight:700;letter-spacing:6px">${options.code}</p>
       <p>This code expires in 10 minutes.</p>
     </div>

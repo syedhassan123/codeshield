@@ -18,7 +18,10 @@ import {
 import {
   authFlowLog,
   issueEmailOtp,
+  issuePasswordResetOtpByEmail,
   issueRegistrationOtpByEmail,
+  PASSWORD_RESET_REQUEST_MESSAGE,
+  resetPasswordWithOtp,
   verifyRegistrationOtpByEmail,
 } from "@/lib/otp/service";
 import { User } from "@/models/User";
@@ -42,6 +45,17 @@ const registrationOtpSchema = z.object({
 
 const registrationEmailSchema = z.object({
   email: z.string().email(),
+});
+
+const passwordResetEmailSchema = z.object({
+  email: z.string().email(),
+});
+
+const passwordResetConfirmSchema = z.object({
+  email: z.string().email(),
+  code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code."),
+  password: z.string().min(6, "Password must be at least 6 characters."),
+  confirmPassword: z.string().min(6, "Password must be at least 6 characters."),
 });
 
 export type AuthActionState = {
@@ -425,6 +439,89 @@ export async function completeFaceAction() {
     op.fail(error);
     debugError("completeFaceAction failed", error);
     return { error: "Face verification update failed." };
+  }
+}
+
+export async function requestPasswordResetAction(raw: unknown) {
+  const op = createServerOp({
+    domain: "AUTH",
+    operation: "REQUEST_PASSWORD_RESET",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const parsed = passwordResetEmailSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { error: "Enter a valid email address." };
+    }
+
+    await connectDB();
+    const result = await issuePasswordResetOtpByEmail(parsed.data.email);
+    op.success({
+      issued: result.issued,
+      email: maskEmail(parsed.data.email),
+    });
+
+    return {
+      success: true as const,
+      message: PASSWORD_RESET_REQUEST_MESSAGE,
+    };
+  } catch (error) {
+    if (
+      error instanceof ActionError &&
+      error.message.startsWith("Too many OTP requests")
+    ) {
+      op.fail(error);
+      return { error: error.message };
+    }
+    op.fail(error);
+    return {
+      success: true as const,
+      message: PASSWORD_RESET_REQUEST_MESSAGE,
+    };
+  }
+}
+
+export async function confirmPasswordResetAction(raw: unknown) {
+  const op = createServerOp({
+    domain: "AUTH",
+    operation: "CONFIRM_PASSWORD_RESET",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const parsed = passwordResetConfirmSchema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        error:
+          parsed.error.issues[0]?.message ||
+          "Check the code and password, then try again.",
+      };
+    }
+    if (parsed.data.password !== parsed.data.confirmPassword) {
+      return { error: "Passwords do not match." };
+    }
+
+    await connectDB();
+    await resetPasswordWithOtp(
+      parsed.data.email,
+      parsed.data.code,
+      parsed.data.password,
+    );
+
+    op.success({
+      email: maskEmail(parsed.data.email),
+      redirectTo: "/?reset=1",
+    });
+
+    return {
+      success: true as const,
+      message: "Password updated. Please sign in with your new password.",
+      redirectTo: "/?reset=1",
+    };
+  } catch (error) {
+    op.fail(error);
+    return toAuthError(error);
   }
 }
 

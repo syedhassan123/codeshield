@@ -1,6 +1,6 @@
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
-export const OTP_PURPOSES = ["registration", "login"] as const;
+export const OTP_PURPOSES = ["registration", "login", "password_reset"] as const;
 export type OtpPurpose = (typeof OTP_PURPOSES)[number];
 
 const EmailOtpSchema = new Schema(
@@ -63,7 +63,12 @@ export type EmailOtpDocument = InferSchemaType<typeof EmailOtpSchema> & {
 function getEmailOtpModel(): Model<EmailOtpDocument> {
   const cached = mongoose.models.EmailOtp as Model<EmailOtpDocument> | undefined;
   if (cached) {
-    if (!cached.schema.path("purpose")) {
+    const purposePath = cached.schema.path("purpose") as
+      | { enumValues?: string[]; options?: { enum?: string[] } }
+      | undefined;
+    const enums =
+      purposePath?.enumValues ?? purposePath?.options?.enum ?? [];
+    if (!purposePath || !enums.includes("password_reset")) {
       mongoose.deleteModel("EmailOtp");
     } else {
       return cached;

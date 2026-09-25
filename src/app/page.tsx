@@ -72,10 +72,11 @@ const roles = [
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ verified?: string }>;
+  searchParams: Promise<{ verified?: string; reset?: string }>;
 }) {
   const params = await searchParams;
   const verifiedBanner = params.verified === "1";
+  const resetBanner = params.reset === "1";
 
   return (
     <div className="min-h-screen bg-background">
@@ -145,7 +146,10 @@ export default async function HomePage({
           </div>
 
           <div id="login">
-            <AuthPanel verifiedBanner={verifiedBanner} />
+            <AuthPanel
+              verifiedBanner={verifiedBanner}
+              resetBanner={resetBanner}
+            />
           </div>
         </div>
       </section>

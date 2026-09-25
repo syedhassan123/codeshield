@@ -5,6 +5,7 @@ import { evaluateAgainstTests } from "@/lib/coding/evaluate";
 import { debugLog, logAuthorization, maskId } from "@/lib/debug";
 import { recalculateResultScores } from "@/lib/exam/score";
 import { abandonIncompleteRecordings } from "@/lib/exam/recording-finalize";
+import { notifyResultReady } from "@/lib/notifications/events";
 import { Answer } from "@/models/Answer";
 import type { AttemptDocument } from "@/models/Attempt";
 import { Attempt } from "@/models/Attempt";
@@ -349,6 +350,18 @@ export async function finalizeAttempt(
   // exams with pending subjective/coding grading complete later via
   // gradeQuestionAction/completeEvaluationAction instead).
   await issueCertificateIfEligible(result);
+
+  // Phase 20: notify the student their result is ready. Safe to fire
+  // unconditionally here — this whole block only runs once per attempt
+  // (guarded by the `if (live.resultId) return live;` check above), so
+  // there's no risk of a duplicate notification on a later re-finalize.
+  if (scores.evaluationStatus === "completed") {
+    await notifyResultReady({
+      studentId: live.studentId,
+      attemptId: live._id.toString(),
+      assessmentTitle: live.assessmentTitle,
+    });
+  }
 
   return updated ?? (await Attempt.findById(live._id))!;
 }

@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { ActionError } from "@/lib/auth-guards";
 import { debugLog, isVerboseDebugEnabled, maskEmail, maskId } from "@/lib/debug";
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@/lib/otp/crypto";
@@ -102,6 +103,7 @@ export async function issueEmailOtp(
     to: email,
     code,
     name: user.name,
+    kind: purpose === "password_reset" ? "password_reset" : "verification",
   });
 
   if (purpose === "registration") {
@@ -131,10 +133,10 @@ export async function issueRegistrationOtpByEmail(emailRaw: string) {
   return issueEmailOtp(user._id.toString(), "registration");
 }
 
-export async function verifyEmailOtp(
+async function consumeEmailOtp(
   userId: string,
   code: string,
-  purpose: OtpPurpose = "login",
+  purpose: OtpPurpose,
 ) {
   const cleaned = code.replace(/\D/g, "");
   if (cleaned.length !== 6) {
@@ -183,10 +185,17 @@ export async function verifyEmailOtp(
     );
   }
 
-  // Invalidate — never reusable after success
   challenge.consumedAt = new Date();
   await challenge.save();
+  return user;
+}
 
+export async function verifyEmailOtp(
+  userId: string,
+  code: string,
+  purpose: OtpPurpose = "login",
+) {
+  const user = await consumeEmailOtp(userId, code, purpose);
   const verifiedAt = new Date();
 
   if (purpose === "registration") {
@@ -194,7 +203,7 @@ export async function verifyEmailOtp(
       $set: { emailVerified: true },
     });
     authFlowLog("REGISTER", "Email verified");
-  } else {
+  } else if (purpose === "login") {
     // Marks OTP success for this login session (JWT sync checks this vs token.authTime).
     await User.findByIdAndUpdate(user._id, {
       $set: { otpLoginVerifiedAt: verifiedAt },
@@ -203,11 +212,61 @@ export async function verifyEmailOtp(
 
   debugLog("AUTH", "OTP_VERIFIED", {
     userId: maskId(userId),
-    email: maskEmail(email),
+    email: maskEmail(user.email),
     purpose,
   });
 
   return { success: true as const, verifiedAt: verifiedAt.toISOString() };
+}
+
+export const PASSWORD_RESET_REQUEST_MESSAGE =
+  "If an account exists for that email, we sent a code.";
+
+/**
+ * Request a password-reset OTP. Unknown emails and suspended accounts
+ * return the same generic result and never create a code — no existence leak.
+ */
+export async function issuePasswordResetOtpByEmail(emailRaw: string) {
+  const email = emailRaw.toLowerCase().trim();
+  const user = await User.findOne({ email });
+  if (!user || user.status === "suspended") {
+    debugLog("AUTH", "PASSWORD_RESET_OTP_SKIPPED", {
+      email: maskEmail(email),
+      reason: !user ? "unknown_email" : "suspended",
+    });
+    return { issued: false as const };
+  }
+
+  const result = await issueEmailOtp(user._id.toString(), "password_reset");
+  return { issued: true as const, ...result };
+}
+
+/**
+ * Verify the reset code and write a new password hash in one step.
+ * Does not create a session and does not set emailVerified / otpLoginVerifiedAt.
+ */
+export async function resetPasswordWithOtp(
+  emailRaw: string,
+  code: string,
+  newPassword: string,
+) {
+  const email = emailRaw.toLowerCase().trim();
+  const user = await User.findOne({ email });
+  if (!user || user.status === "suspended") {
+    throw new ActionError("Invalid or expired code.");
+  }
+
+  await consumeEmailOtp(user._id.toString(), code, "password_reset");
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await User.findByIdAndUpdate(user._id, { $set: { passwordHash } });
+
+  debugLog("AUTH", "PASSWORD_RESET", {
+    userId: maskId(user._id.toString()),
+    email: maskEmail(email),
+  });
+
+  return { success: true as const };
 }
 
 export async function verifyRegistrationOtpByEmail(

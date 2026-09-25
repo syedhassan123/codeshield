@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
-import { getAdminMonitoringAction } from "@/lib/actions/admin";
+import { useEffect, useRef, useState } from "react";
 import { formatDurationMs } from "@/lib/admin/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
@@ -36,34 +35,67 @@ type MonitoringPayload = {
   systemHealth: ReadonlyArray<readonly [string, string]>;
 };
 
-const REFRESH_MS = 30000;
-
 export function AdminMonitoringClient() {
   const [data, setData] = useState<MonitoringPayload | null>(null);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
-  const [pending, startTransition] = useTransition();
-
-  const load = () => {
-    setError("");
-    startTransition(async () => {
-      const result = await getAdminMonitoringAction();
-      if ("error" in result && result.error) {
-        setError(result.error);
-        setLoaded(true);
-        return;
-      }
-      if ("summary" in result) {
-        setData(result as MonitoringPayload);
-      }
-      setLoaded(true);
-    });
-  };
+  const [connected, setConnected] = useState(false);
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    load();
-    const timer = window.setInterval(load, REFRESH_MS);
-    return () => window.clearInterval(timer);
+    let source: EventSource | null = null;
+    let cancelled = false;
+
+    const connect = () => {
+      if (cancelled) return;
+      source = new EventSource("/api/admin/monitoring/stream");
+
+      source.addEventListener("open", () => {
+        setConnected(true);
+        setError("");
+      });
+
+      source.addEventListener("monitoring", (event) => {
+        try {
+          const payload = JSON.parse(
+            (event as MessageEvent).data,
+          ) as MonitoringPayload;
+          setData(payload);
+          setLoaded(true);
+        } catch {
+          // Ignore a single malformed frame — the next tick will recover.
+        }
+      });
+
+      // Server-reported query failure (connection itself is still healthy).
+      // Deliberately NOT named "error" — see note in the route handler.
+      source.addEventListener("monitoring_error", (event) => {
+        try {
+          const payload = JSON.parse(
+            (event as MessageEvent).data,
+          ) as { error?: string };
+          if (payload.error) setError(payload.error);
+        } catch {
+          // Ignore a single malformed frame.
+        }
+      });
+
+      // Native EventSource "error" (connection lost / retrying).
+      source.onerror = () => {
+        setConnected(false);
+        source?.close();
+        if (cancelled) return;
+        retryRef.current = setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      source?.close();
+      if (retryRef.current) clearTimeout(retryRef.current);
+    };
   }, []);
 
   const summary = data?.summary ?? {
@@ -79,10 +111,15 @@ export function AdminMonitoringClient() {
         title="AI Monitoring Center"
         description="Real-time proctoring across active assessments."
         actions={
-          <span className="text-xs font-semibold text-success">
-            ● LIVE · {summary.activeSessions} session
+          <span
+            className={cn(
+              "text-xs font-semibold",
+              connected ? "text-success" : "text-warning",
+            )}
+          >
+            {connected ? "● LIVE" : "○ Reconnecting…"} ·{" "}
+            {summary.activeSessions} session
             {summary.activeSessions === 1 ? "" : "s"}
-            {pending ? " · refreshing…" : ""}
           </span>
         }
       />

@@ -14,6 +14,7 @@ import {
 } from "@/lib/debug";
 import { recalculateResultScores } from "@/lib/exam/score";
 import { buildSecuritySummary } from "@/lib/exam/security";
+import { notifyResultReady } from "@/lib/notifications/events";
 import { analyzeProctoringAttempt } from "@/lib/proctoring/analyze";
 import {
   serializeAttempt,
@@ -412,6 +413,7 @@ export async function gradeQuestionAction(raw: unknown) {
     question.gradedAt = now;
     result.markModified("questions");
 
+    const wasCompleted = result.evaluationStatus === "completed";
     const scores = recalculateResultScores(result.questions);
     Object.assign(result, scores);
     result.lastGradedBy = new mongoose.Types.ObjectId(session.user.id);
@@ -429,6 +431,17 @@ export async function gradeQuestionAction(raw: unknown) {
     // "completed" — check certificate eligibility here too, not just in
     // finalizeAttempt (which only covers all-auto-graded exams).
     await issueCertificateIfEligible(result);
+
+    // Phase 20: notify only on the actual pending -> completed transition,
+    // so re-grading an already-completed result doesn't spam a duplicate
+    // "result ready" notification.
+    if (!wasCompleted && scores.evaluationStatus === "completed") {
+      await notifyResultReady({
+        studentId: result.studentId,
+        attemptId: data.attemptId,
+        assessmentTitle: result.assessmentTitle,
+      });
+    }
 
     debugLog("GRADING", "saved", {
       attemptId: maskId(data.attemptId),
@@ -485,6 +498,7 @@ export async function completeEvaluationAction(attemptId: string) {
       );
     }
 
+    const alreadyCompleted = !!result.evaluationCompletedAt;
     Object.assign(result, scores);
     result.lastGradedBy = new mongoose.Types.ObjectId(session.user.id);
     result.lastGradedAt = new Date();
@@ -494,6 +508,16 @@ export async function completeEvaluationAction(attemptId: string) {
     // Phase 16: admin explicitly marking evaluation complete is another
     // path to evaluationStatus === "completed" — check eligibility here too.
     await issueCertificateIfEligible(result);
+
+    // Phase 20: only notify the first time this attempt's evaluation
+    // actually completes, not on a redundant repeat call.
+    if (!alreadyCompleted) {
+      await notifyResultReady({
+        studentId: result.studentId,
+        attemptId,
+        assessmentTitle: result.assessmentTitle,
+      });
+    }
 
     debugLog("GRADING", "evaluation_completed", {
       attemptId: maskId(attemptId),
