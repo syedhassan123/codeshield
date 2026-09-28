@@ -42,6 +42,21 @@ type AnswerMap = Record<
   { selectedOptionKey: string; textAnswer: string }
 >;
 
+function describeSubmitError(error: unknown): string {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error instanceof Error && error.message.trim()) {
+    const message = error.message;
+    if (/failed to fetch|networkerror|load failed/i.test(message)) {
+      return "Network error while submitting the exam. Please try again — your answers have not been submitted yet.";
+    }
+    if (/body exceeded|too large|413/i.test(message)) {
+      return "The camera recording could not be sent because it is too large. Retry submit to save your answers.";
+    }
+    return message;
+  }
+  return "The exam could not be submitted. Please try again.";
+}
+
 function buildAnswerMap(answers: SerializedAnswer[]): AnswerMap {
   const map: AnswerMap = {};
   for (const a of answers) {
@@ -130,7 +145,8 @@ export function ExamSessionClient({
     recordingStatus,
     reconnect,
     armRecordingFinalize,
-    finalizeAfterSubmit,
+    stopRecordingForSubmit,
+    uploadPreparedRecording,
   } = useExamRecording({
     attemptId: attempt.id,
     enabled:
@@ -309,6 +325,7 @@ export function ExamSessionClient({
       delete saveTimers.current[questionId];
     }
     const pending = { ...pendingSaves.current };
+    let firstError = "";
     const flushTasks = Object.entries(pending).map(async ([questionId, payload]) => {
       const result = await saveAnswerAction({
         attemptId: attempt.id,
@@ -316,17 +333,22 @@ export function ExamSessionClient({
         selectedOptionKey: payload.selectedOptionKey,
         textAnswer: payload.textAnswer,
       });
-      if (!("error" in result && result.error)) {
-        delete pendingSaves.current[questionId];
-        if ("attempt" in result && result.attempt) {
-          setAttempt(result.attempt);
-        }
-        if ("serverNow" in result && result.serverNow) {
-          skewRef.current = Date.now() - new Date(result.serverNow).getTime();
-        }
+      if ("error" in result && result.error) {
+        firstError = firstError || result.error;
+        return;
+      }
+      delete pendingSaves.current[questionId];
+      if ("attempt" in result && result.attempt) {
+        setAttempt(result.attempt);
+      }
+      if ("serverNow" in result && result.serverNow) {
+        skewRef.current = Date.now() - new Date(result.serverNow).getTime();
       }
     });
     await Promise.all([...inflightSaves.current, ...flushTasks]);
+    if (firstError) {
+      throw new Error(firstError);
+    }
   };
 
   const updateAnswer = (patch: Partial<AnswerMap[string]>) => {
@@ -346,18 +368,34 @@ export function ExamSessionClient({
     setIsSubmitting(true);
     setError("");
     armRecordingFinalize();
+    if (!forced) setConfirmOpen(false);
 
     void (async () => {
       try {
         setSubmitPhase("Saving answers…");
-        await flushPendingSaves();
+        try {
+          await flushPendingSaves();
+        } catch (error) {
+          const message = describeSubmitError(error);
+          if (!/closed|expired/i.test(message)) throw error;
+        }
         if (codingFlushRef.current) {
-          await codingFlushRef.current();
+          try {
+            await codingFlushRef.current();
+          } catch {
+            // Last saved coding draft is still on the server.
+          }
         }
 
+        let recordingReadyToUpload = false;
         if (security.requireCamera) {
-          setSubmitPhase("Finalizing camera recording…");
-          await finalizeAfterSubmit();
+          setSubmitPhase("Stopping camera recording…");
+          try {
+            const stopped = await stopRecordingForSubmit();
+            recordingReadyToUpload = stopped.success;
+          } catch {
+            // Camera stop must not block answer submission.
+          }
         }
 
         setSubmitPhase("Submitting exam…");
@@ -377,19 +415,29 @@ export function ExamSessionClient({
           setAttempt(result.attempt);
         }
 
+        if (security.requireCamera && recordingReadyToUpload) {
+          setSubmitPhase("Saving camera recording…");
+          try {
+            await Promise.race([
+              uploadPreparedRecording(),
+              new Promise((resolve) => setTimeout(resolve, 45_000)),
+            ]);
+          } catch {
+            // Exam answers are already stored.
+          }
+        }
+
         await exitFullscreenAfterSubmit();
         setSubmitPhase("");
         router.replace(`/student/exam/result/${attempt.id}`);
-      } catch {
-        setError("Submission failed. Please try again.");
+      } catch (error) {
+        setError(describeSubmitError(error));
         autoSubmitted.current = false;
         setSecurityEnabled(true);
         setSubmitPhase("");
         setIsSubmitting(false);
       }
     })();
-
-    if (!forced) setConfirmOpen(false);
   };
 
   useEffect(() => {
@@ -620,6 +668,14 @@ export function ExamSessionClient({
         </div>
       )}
 
+      {error && !isSubmitting && (
+        <div className="relative z-30 max-w-6xl mx-auto px-4 pt-2">
+          <p className="text-sm font-semibold text-danger bg-danger-soft px-3 py-2 rounded-lg">
+            {error}
+          </p>
+        </div>
+      )}
+
       <div className="relative max-w-6xl mx-auto p-4 md:p-6 grid lg:grid-cols-[220px_1fr] gap-4">
         <aside className="card-soft p-4 h-fit">
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-3">
@@ -750,16 +806,18 @@ export function ExamSessionClient({
           You cannot change answers after submission.
         </p>
         <div className="flex gap-3 justify-end">
-          <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+          <Button
+            variant="outline"
+            onClick={() => setConfirmOpen(false)}
+            disabled={isSubmitting}
+          >
             Continue exam
           </Button>
           <Button
             onClick={() => submit(false)}
             disabled={isSubmitting}
           >
-            {isSubmitting
-              ? submitPhase || "Submitting…"
-              : "Submit now"}
+            {isSubmitting ? submitPhase || "Submitting…" : "Submit now"}
           </Button>
         </div>
       </Modal>

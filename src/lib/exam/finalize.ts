@@ -20,7 +20,7 @@ export async function ensureAttemptNotExpired(
   attempt: AttemptDocument,
 ): Promise<AttemptDocument> {
   if (attempt.status !== "in_progress") return attempt;
-
+  
   const now = new Date();
   if (now.getTime() <= new Date(attempt.expiresAt).getTime()) {
     return attempt;
@@ -335,7 +335,7 @@ export async function finalizeAttempt(
     { returnDocument: "after" },
   );
 
-  const abandoned = await abandonIncompleteRecordings(live._id);
+  const abandoned = await abandonIncompleteRecordings(live._id).catch(() => 0);
   debugLog("RESULT", "CREATED", {
     attemptId: live._id.toString().slice(0, 8),
     reason,
@@ -349,18 +349,30 @@ export async function finalizeAttempt(
   // completed, passing evaluation (e.g. all-MCQ exams complete here;
   // exams with pending subjective/coding grading complete later via
   // gradeQuestionAction/completeEvaluationAction instead).
-  await issueCertificateIfEligible(result);
+  try {
+    await issueCertificateIfEligible(result);
+  } catch {
+    debugLog("CERTIFICATE", "ISSUE_AFTER_SUBMIT_FAILED", {
+      attemptId: live._id.toString().slice(0, 8),
+    });
+  }
 
   // Phase 20: notify the student their result is ready. Safe to fire
   // unconditionally here — this whole block only runs once per attempt
   // (guarded by the `if (live.resultId) return live;` check above), so
   // there's no risk of a duplicate notification on a later re-finalize.
   if (scores.evaluationStatus === "completed") {
-    await notifyResultReady({
-      studentId: live.studentId,
-      attemptId: live._id.toString(),
-      assessmentTitle: live.assessmentTitle,
-    });
+    try {
+      await notifyResultReady({
+        studentId: live.studentId,
+        attemptId: live._id.toString(),
+        assessmentTitle: live.assessmentTitle,
+      });
+    } catch {
+      debugLog("NOTIFICATION", "RESULT_READY_AFTER_SUBMIT_FAILED", {
+        attemptId: live._id.toString().slice(0, 8),
+      });
+    }
   }
 
   return updated ?? (await Attempt.findById(live._id))!;

@@ -208,7 +208,7 @@ export async function uploadExamRecordingAction(formData: FormData) {
     }
 
     const file = formData.get("file");
-    if (!(file instanceof File) || file.size <= 0) {
+    if (!(file instanceof Blob) || file.size <= 0) {
       return { success: false as const, error: "Recording file missing." };
     }
 

@@ -39,10 +39,10 @@ function directionDetail(orientation: HeadOrientation): string | null {
 /**
  * Presentation layer for sustained head-looking-away warnings.
  * Consumes existing Phase 8B detection signals — does not run vision itself.
+ * Visibility follows headWarning / warningTier (20s+), not raw looking_away status.
  */
 export function useProctoringHeadWarningUx({
   enabled,
-  headStatus,
   headOrientation,
   headWarning,
   warningTier,
@@ -53,8 +53,7 @@ export function useProctoringHeadWarningUx({
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevWarningRef = useRef("");
 
-  const lookingAway =
-    Boolean(headWarning) || headStatus === "looking_away";
+  const thresholdReached = Boolean(headWarning) || warningTier >= 1;
 
   useEffect(() => {
     if (!enabled || blockedByHigherPriority) {
@@ -62,7 +61,7 @@ export function useProctoringHeadWarningUx({
       return;
     }
 
-    if (lookingAway) {
+    if (thresholdReached) {
       if (dismissTimerRef.current) {
         clearTimeout(dismissTimerRef.current);
         dismissTimerRef.current = null;
@@ -81,7 +80,7 @@ export function useProctoringHeadWarningUx({
   }, [
     blockedByHigherPriority,
     enabled,
-    lookingAway,
+    thresholdReached,
     visible,
     warningTier,
   ]);
