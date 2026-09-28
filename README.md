@@ -50,17 +50,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-## Demo accounts
 
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | `admin@codeshield.ai` | `password123` |
-| Student | `rohan@codeshield.edu` | `password123` |
-| Interviewer | `kabir@codeshield.ai` | `password123` |
-| Student (landing default) | `demo@codeshield.ai` | `password123` |
-
-- **Quick-login** buttons sign in fully verified (skips OTP/face).
-- **Email/password** registration uses email OTP; `/verify-face` remains optional mock UI.
 
 ## Completed phases
 
