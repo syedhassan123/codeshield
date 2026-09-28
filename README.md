@@ -90,6 +90,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | **20** | Real in-app notifications — shared bell/dropdown across admin, student, and interviewer portals |
 | **21** | Admin analytics — `/admin/analytics` charts read real MongoDB series |
 | **22** | Password reset — `/forgot-password` issues a 6-digit OTP and updates the hash |
+| **23** | Workspace search — shared header search queries role-scoped MongoDB data |
 
 ## Phase 13 — Production hardening
 
@@ -291,6 +292,19 @@ npx tsx --env-file=.env.local scripts/verify-phase21-analytics.ts
 npx tsx --env-file=.env.local scripts/verify-phase22-password-reset.ts
 ```
 
+## Phase 23 — Workspace search
+
+The header search box in `workspace-shell.tsx` was decorative (no `onChange`, no results). It now queries MongoDB, scoped to the signed-in role. No new dependency.
+
+- **Admin:** assessments (title/code/category), students (name/email/course), questions (prompt/code).
+- **Student:** published assessments they can take, their own results, their own issued certificates. Drafts and other students' certificates never appear.
+- **Interviewer:** only interviews (and those interviews' candidates) assigned to them.
+- Queries shorter than 2 characters return nothing. Regex metacharacters are escaped. Each group is capped at 5 hits. The dropdown closes on Escape, outside click, or selecting a result.
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase23-workspace-search.ts
+```
+
 ## Still mock / future work
 
 - Interview room question list and local code/notes panels (static/local-only)
@@ -320,6 +334,7 @@ npx tsx --env-file=.env.local scripts/verify-phase19-live-monitoring.ts
 npx tsx --env-file=.env.local scripts/verify-phase20-notifications.ts
 npx tsx --env-file=.env.local scripts/verify-phase21-analytics.ts
 npx tsx --env-file=.env.local scripts/verify-phase22-password-reset.ts
+npx tsx --env-file=.env.local scripts/verify-phase23-workspace-search.ts
 npx tsx --env-file=.env.local scripts/verify-production-submission-recording.ts
 ```
 

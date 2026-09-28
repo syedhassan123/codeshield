@@ -40,7 +40,8 @@ export type LogPrefix =
   | "CERTIFICATE"
   | "SETTINGS"
   | "MONITORING"
-  | "NOTIFICATION";
+  | "NOTIFICATION"
+  | "SEARCH";
 
 type DetailValue = string | number | boolean | null | undefined;
 export type LogDetails = Record<string, DetailValue>;
@@ -432,6 +433,7 @@ export function createServerOp(options: {
     | "CERTIFICATE"
     | "SETTINGS"
     | "NOTIFICATION"
+    | "SEARCH"
   >;
   operation: string;
   source?: "SERVER-ACTION" | "SERVER-COMPONENT" | "API";

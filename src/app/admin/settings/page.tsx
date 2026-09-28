@@ -1,4 +1,4 @@
-import { AdminSettingsClient } from "@/components/admin/admin-settings-client";
+import { AdminSettingsClient } from "@/components/admin/admin-settings-client"; 
 import { connectDB } from "@/lib/db";
 import { createServerOp } from "@/lib/debug";
 import { requirePageRole } from "@/lib/safe-auth";

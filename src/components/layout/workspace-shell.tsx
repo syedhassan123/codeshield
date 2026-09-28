@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, LogOut, Search } from "lucide-react";
+import { Bell, LogOut } from "lucide-react";
 import { BrandMark } from "@/components/layout/brand-mark";
+import { WorkspaceSearch } from "@/components/layout/workspace-search";
 import {
   NAV_ICONS,
   type NavItemConfig,
@@ -161,14 +162,7 @@ export function WorkspaceShell({
           <div className="lg:hidden">
             <BrandMark compact />
           </div>
-          <div className="flex-1 flex items-center gap-2 rounded-xl border border-border bg-background px-3 h-10 max-w-full lg:max-w-md">
-            <Search className="w-4 h-4 text-muted-foreground shrink-0" />
-            <input
-              placeholder="Search..."
-              aria-label="Search workspace"
-              className="bg-transparent outline-none text-sm flex-1 min-w-0 placeholder:text-muted-foreground focus-visible:ring-0"
-            />
-          </div>
+          <WorkspaceSearch role={role} />
           <div className="relative" ref={notifRef}>
             <button
               type="button"
