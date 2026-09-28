@@ -92,7 +92,7 @@ export function AuthPanel({
               name="email"
               type="email"
               placeholder="you@university.edu"
-              defaultValue="demo@codeshield.ai"
+              // defaultValue="demo@codeshield.ai"
               className="pl-9"
               required
             />
@@ -116,7 +116,7 @@ export function AuthPanel({
               name="password"
               type={showPassword ? "text" : "password"}
               placeholder="••••••••"
-              defaultValue="password123"
+              // defaultValue="password123"
               className="pl-9 pr-10"
               required
             />
@@ -174,7 +174,7 @@ export function AuthPanel({
         </Button>
       </form>
 
-      <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+      {/* <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
         <div className="flex-1 h-px bg-border" />
         Or quick-login as demo
         <div className="flex-1 h-px bg-border" />
@@ -192,7 +192,7 @@ export function AuthPanel({
             {role === "admin" ? "Admin" : role === "student" ? "Student" : "Interviewer"}
           </button>
         ))}
-      </div>
+      </div> */}
 
       <div className="mt-5 flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="w-4 h-4 text-primary" />

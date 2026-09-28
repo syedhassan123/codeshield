@@ -9,6 +9,7 @@ export function getInterviewRoomName(interviewId: string) {
 
 export function getParticipantIdentity(userId: string) {
   return `user:${userId}`;
+  
 }
 
 export function computeInterviewTokenTtlSeconds(durationMin: number) {
