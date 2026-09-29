@@ -7,6 +7,7 @@ import {
 import { isValidObjectId } from "@/lib/interviewer/queries";
 import { Interview } from "@/models/Interview";
 import { InterviewEvaluation } from "@/models/InterviewEvaluation";
+import { InterviewRecording } from "@/models/InterviewRecording";
 import { User } from "@/models/User";
 import type { InterviewStatus, InterviewType } from "@/types/interview";
 
@@ -35,6 +36,7 @@ export type SerializedAdminInterview = {
   displayStatus: string;
   meetingUrl: string | null;
   hasEvaluation: boolean;
+  hasReadyRecording: boolean;
 };
 
 export type AdminInterviewerPanelItem = {
@@ -68,6 +70,7 @@ function toDatetimeLocalValue(date: Date) {
 function serializeAdminInterview(
   doc: InterviewLean,
   hasEvaluation = false,
+  hasReadyRecording = false,
 ): SerializedAdminInterview {
   const candidate =
     doc.candidateId instanceof mongoose.Types.ObjectId ? null : doc.candidateId;
@@ -95,6 +98,7 @@ function serializeAdminInterview(
     displayStatus: formatInterviewStatus(doc.status),
     meetingUrl: doc.meetingUrl ?? null,
     hasEvaluation,
+    hasReadyRecording,
   };
 }
 
@@ -143,10 +147,21 @@ export async function listAdminInterviews(): Promise<SerializedAdminInterview[]>
     .populate("interviewerId", "name")
     .lean<InterviewLean[]>();
 
+  const ids = docs.map((doc) => doc._id);
   const evaluationInterviewIds = new Set(
     (
       await InterviewEvaluation.find({
-        interviewId: { $in: docs.map((doc) => doc._id) },
+        interviewId: { $in: ids },
+      })
+        .select("interviewId")
+        .lean()
+    ).map((row) => row.interviewId.toString()),
+  );
+  const readyRecordingIds = new Set(
+    (
+      await InterviewRecording.find({
+        interviewId: { $in: ids },
+        status: "READY",
       })
         .select("interviewId")
         .lean()
@@ -154,7 +169,11 @@ export async function listAdminInterviews(): Promise<SerializedAdminInterview[]>
   );
 
   return docs.map((doc) =>
-    serializeAdminInterview(doc, evaluationInterviewIds.has(doc._id.toString())),
+    serializeAdminInterview(
+      doc,
+      evaluationInterviewIds.has(doc._id.toString()),
+      readyRecordingIds.has(doc._id.toString()),
+    ),
   );
 }
 
@@ -178,7 +197,14 @@ export async function getAdminInterview(
     await InterviewEvaluation.exists({ interviewId: doc._id }),
   );
 
-  return serializeAdminInterview(doc, hasEvaluation);
+  const hasReadyRecording = Boolean(
+    await InterviewRecording.exists({
+      interviewId: doc._id,
+      status: "READY",
+    }),
+  );
+
+  return serializeAdminInterview(doc, hasEvaluation, hasReadyRecording);
 }
 
 export async function listAdminInterviewerPanel(): Promise<

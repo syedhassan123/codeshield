@@ -25,3 +25,9 @@ export function getLiveKitConfig(): LiveKitConfig {
 
   return { url, apiKey, apiSecret };
 }
+
+/** LiveKit Cloud/API host must be https, not the WebSocket URL. */
+export function getLiveKitHttpHost() {
+  const { url } = getLiveKitConfig();
+  return url.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+}

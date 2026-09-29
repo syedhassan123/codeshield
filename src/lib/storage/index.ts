@@ -101,23 +101,44 @@ export async function getStorageProvider(): Promise<StorageProvider> {
   return cached;
 }
 
+function recordingExtension(mimeType: string) {
+  if (mimeType.includes("mp4")) return "mp4";
+  if (mimeType.includes("webm")) return "webm";
+  return "bin";
+}
+
 export function buildRecordingObjectKey(options: {
   attemptId: string;
   mimeType: string;
 }) {
-  const ext = options.mimeType.includes("mp4")
-    ? "mp4"
-    : options.mimeType.includes("webm")
-      ? "webm"
-      : "bin";
+  const ext = recordingExtension(options.mimeType);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const nonce = randomBytes(4).toString("hex");
   return `exams/${options.attemptId}/${stamp}-${nonce}.${ext}`;
 }
 
+export function buildInterviewRecordingObjectKey(options: {
+  interviewId: string;
+  mimeType: string;
+}) {
+  const ext = recordingExtension(options.mimeType);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const nonce = randomBytes(4).toString("hex");
+  return `interviews/${options.interviewId}/${stamp}-${nonce}.${ext}`;
+}
+
 export async function readLocalRecordingFile(key: string) {
   const full = path.join(recordingsRoot(), key);
   return readFile(full);
+}
+
+export async function localRecordingFileExists(key: string) {
+  try {
+    await access(path.join(recordingsRoot(), key));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function mintLocalPlaybackToken() {

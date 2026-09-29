@@ -18,6 +18,7 @@ import {
   listInterviewerInterviews,
 } from "@/lib/interviewer/queries";
 import { submitOwnedInterviewEvaluation } from "@/lib/interviewer/evaluations";
+import { finalizeInterviewRecordingOnEnd } from "@/lib/interview-recording/service";
 import {
   completeOwnedInterview,
   startOwnedInterview,
@@ -275,6 +276,18 @@ export async function completeInterviewAction(interviewId: string) {
     }
 
     await connectDB();
+
+    try {
+      await finalizeInterviewRecordingOnEnd(session.user.id, interviewId);
+    } catch (recordingError) {
+      op.mongo("interview recording finalize failed", {
+        interviewId,
+        reason:
+          recordingError instanceof Error
+            ? recordingError.message
+            : "recording finalize failed",
+      });
+    }
 
     const interview = await completeOwnedInterview(
       session.user.id,

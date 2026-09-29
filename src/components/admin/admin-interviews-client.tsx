@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { CalendarPlus, Pencil, XCircle } from "lucide-react";
+import { CalendarPlus, Pencil, Play, XCircle } from "lucide-react";
+import { getInterviewRecordingPlaybackAction } from "@/lib/actions/interview-recording";
 import {
   cancelInterviewAction,
   createInterviewAction,
@@ -47,6 +48,8 @@ export function AdminInterviewsClient({
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
+  const [playbackUrl, setPlaybackUrl] = useState("");
+  const [playbackOpen, setPlaybackOpen] = useState(false);
 
   const editing = useMemo(
     () => interviews.find((item) => item.id === editId) ?? null,
@@ -179,6 +182,29 @@ export function AdminInterviewsClient({
                   <td className="py-3 px-2">{item.type}</td>
                   <td className="py-3 px-2">{item.displayStatus}</td>
                   <td className="py-3 px-2 text-right whitespace-nowrap">
+                    {item.hasReadyRecording ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mr-2"
+                        onClick={() => {
+                          startTransition(async () => {
+                            const result =
+                              await getInterviewRecordingPlaybackAction(item.id);
+                            if (
+                              "playbackUrl" in result &&
+                              result.playbackUrl
+                            ) {
+                              setPlaybackUrl(result.playbackUrl);
+                              setPlaybackOpen(true);
+                            }
+                          });
+                        }}
+                        disabled={pending}
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                      </Button>
+                    ) : null}
                     <Button
                       size="sm"
                       variant="outline"
@@ -379,6 +405,26 @@ export function AdminInterviewsClient({
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={playbackOpen}
+        onClose={() => {
+          setPlaybackOpen(false);
+          setPlaybackUrl("");
+        }}
+        title="Interview recording"
+      >
+        {playbackUrl ? (
+          <video
+            className="w-full rounded-xl bg-black"
+            src={playbackUrl}
+            controls
+            preload="metadata"
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">Recording is not available.</p>
+        )}
       </Modal>
     </div>
   );

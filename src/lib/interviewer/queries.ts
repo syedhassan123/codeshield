@@ -692,6 +692,10 @@ export type EvaluationFormContext = {
   formattedDate: string;
   formattedTime: string;
   existing: SerializedInterviewEvaluation | null;
+  recording: {
+    status: string;
+    playbackUrl: string | null;
+  } | null;
 };
 
 export async function getEvaluationFormContext(
@@ -726,5 +730,6 @@ export async function getEvaluationFormContext(
     formattedDate: serialized.formattedDate,
     formattedTime: serialized.formattedTime,
     existing,
+    recording: null,
   };
 }

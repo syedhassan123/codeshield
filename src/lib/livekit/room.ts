@@ -12,10 +12,11 @@ export function getParticipantIdentity(userId: string) {
   
 }
 
-export function computeInterviewTokenTtlSeconds(durationMin: number) {
-  const buffered = durationMin * 60 + 30 * 60;
-  const maxTtl = 4 * 60 * 60;
-  return Math.min(Math.max(buffered, 30 * 60), maxTtl);
+/** Short-lived room JWT. The client fetches a fresh token on reconnect. */
+export const INTERVIEW_ROOM_TOKEN_TTL_SECONDS = 15 * 60;
+
+export function computeInterviewTokenTtlSeconds(_durationMin = 0) {
+  return INTERVIEW_ROOM_TOKEN_TTL_SECONDS;
 }
 
 export async function createInterviewRoomToken(params: {

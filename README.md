@@ -295,10 +295,30 @@ The header search box in `workspace-shell.tsx` was decorative (no `onChange`, no
 npx tsx --env-file=.env.local scripts/verify-phase23-workspace-search.ts
 ```
 
+## Phase 24 — Live LiveKit interview room + recording
+
+Phase 15's room path is on for real once `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` are set. Restart `npm run dev` after changing env so Next.js reloads the keys. Secrets never go to the browser; the client only receives a short-lived JWT from `/api/interviews/[id]/room-token`. Room name stays `interview:{id}`.
+
+- **Connect:** interviewer lobby → room; student joins the same interview from `/student/interviews`. Both publish camera + mic. Connection errors name the failure (token fetch, not authorized, LiveKit unreachable, camera/mic denied) and offer Retry. `startInterviewAction` runs only after LiveKit reports connected, and only once per mount. Room JWTs last **15 minutes**; `useInterviewLiveKitRoom` fetches a fresh token on reconnect.
+- **Recording:** new `InterviewRecording` collection (`RECORDING | UPLOADING | READY | FAILED`), one active row per interview. Preferred path is LiveKit room-composite Egress when S3 output is configured. This repo's default `STORAGE_PROVIDER=local` has no egress destination, so the interviewer records with `MediaRecorder` and uploads through the existing storage helper. The student never starts or stops recording.
+- **End Interview:** stop/upload (or stop egress) is wrapped in try/catch with a timeout. Failures become `FAILED` and never abort `completeOwnedInterview`. A later reconcile can move `FAILED → READY` when the file exists; `READY` never regresses.
+- **Playback:** owning interviewer and admin only, and only when `READY`, via a gated route or short-lived signed URL. Students have no raw-file access.
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase24-livekit-interview.ts
+npx tsx --env-file=.env.local scripts/verify-phase15-video-interview.ts
+```
+
+Live egress against a real LiveKit room (creates the room, then `startRoomCompositeEgress`). For two participants, join as interviewer + student first, then pass that interview id:
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase24-livekit-interview.ts --live-egress
+npx tsx --env-file=.env.local scripts/verify-phase24-livekit-interview.ts --live-egress --interview-id=<id>
+```
+
 ## Still mock / future work
 
 - Interview room question list and local code/notes panels (static/local-only)
-- Interview recording — **deferred** (needs LiveKit configured)
 - Student coding practice (`/student/coding`) — **deferred**
 - AI subjective evaluation assist
 - External LLM-generated summaries (Phase 11 uses rule-based automated review text)
@@ -325,6 +345,7 @@ npx tsx --env-file=.env.local scripts/verify-phase20-notifications.ts
 npx tsx --env-file=.env.local scripts/verify-phase21-analytics.ts
 npx tsx --env-file=.env.local scripts/verify-phase22-password-reset.ts
 npx tsx --env-file=.env.local scripts/verify-phase23-workspace-search.ts
+npx tsx --env-file=.env.local scripts/verify-phase24-livekit-interview.ts
 npx tsx --env-file=.env.local scripts/verify-production-submission-recording.ts
 ```
 

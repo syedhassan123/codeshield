@@ -94,8 +94,8 @@ function unitChecks() {
   );
 
   const ttl = computeInterviewTokenTtlSeconds(45);
-  assert(ttl >= 45 * 60, "token ttl includes interview duration");
-  assert(ttl <= 4 * 60 * 60, "token ttl capped at four hours");
+  assert(ttl === 15 * 60, "token ttl is 15 minutes");
+  assert(ttl <= 15 * 60, "token ttl does not exceed 15 minutes");
 }
 
 async function dbChecks() {

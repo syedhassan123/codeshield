@@ -60,6 +60,22 @@ export function EvaluationFormClient({ context }: { context: EvaluationFormConte
           </div>
         </div>
 
+        {context.recording?.status === "READY" && context.recording.playbackUrl ? (
+          <div className="space-y-2">
+            <div className="text-sm font-semibold">Interview recording</div>
+            <video
+              className="w-full rounded-xl bg-black"
+              src={context.recording.playbackUrl}
+              controls
+              preload="metadata"
+            />
+          </div>
+        ) : context.recording ? (
+          <p className="text-sm text-muted-foreground">
+            Recording status: {context.recording.status}
+          </p>
+        ) : null}
+
         <div className="space-y-2">
           <label className="text-sm font-semibold" htmlFor="score">
             Score (%)

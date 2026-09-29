@@ -5,14 +5,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ConnectionState } from "livekit-client";
 import { Camera, CameraOff, Mic, MicOff, PhoneOff } from "lucide-react";
+import { startInterviewRecordingAction } from "@/lib/actions/interview-recording";
 import {
   completeInterviewAction,
   startInterviewAction,
 } from "@/lib/actions/interviewer";
 import { AudioTrack, VideoTrack } from "@/components/interview/video-track";
 import { useInterviewLiveKitRoom } from "@/hooks/use-interview-livekit-room";
+import { useInterviewRecording } from "@/hooks/use-interview-recording";
 import { interviewQuestions } from "@/lib/mock-data";
 import type { InterviewRoomContext } from "@/lib/interviewer/queries";
+import type { InterviewRecordingMode } from "@/types/interview-recording";
 import { cn } from "@/lib/utils";
 
 type InterviewRoomClientProps = {
@@ -44,6 +47,9 @@ export function InterviewRoomClient({
   const router = useRouter();
   const canComplete = participantRole === "interviewer";
   const startedRef = useRef(false);
+  const [recordingId, setRecordingId] = useState<string | null>(null);
+  const [recordingMode, setRecordingMode] =
+    useState<InterviewRecordingMode | null>(null);
   const [tab, setTab] = useState<"questions" | "code" | "notes">("questions");
   const [qIndex, setQIndex] = useState(0);
   const [notes, setNotes] = useState("");
@@ -57,6 +63,20 @@ export function InterviewRoomClient({
     livekitConfigured,
   );
 
+  // MediaRecorder runs only when egress failed and mode flipped to "client".
+  // Successful startRoomCompositeEgress leaves mode "egress" and never enables this hook.
+  const useClientRecorder = recordingMode === "client";
+  const recording = useInterviewRecording({
+    interviewId: interview.id,
+    recordingId,
+    enabled:
+      canComplete &&
+      useClientRecorder &&
+      livekit.connectionState === ConnectionState.Connected,
+    videoTrack: livekit.localVideoTrack,
+    audioTrack: livekit.localAudioTrack,
+  });
+
   useEffect(() => {
     if (
       !canComplete ||
@@ -67,7 +87,16 @@ export function InterviewRoomClient({
     }
 
     startedRef.current = true;
-    void startInterviewAction(interview.id);
+    void (async () => {
+      const started = await startInterviewAction(interview.id);
+      if ("error" in started && started.error) return;
+      const rec = await startInterviewRecordingAction(interview.id);
+      if ("error" in rec && rec.error) return;
+      if ("recordingId" in rec && rec.recordingId) {
+        setRecordingId(rec.recordingId);
+        setRecordingMode(rec.mode);
+      }
+    })();
   }, [canComplete, interview.id, livekit.connectionState]);
 
   const waitingMessage =
@@ -84,6 +113,11 @@ export function InterviewRoomClient({
     if (ending) return;
     setEndError("");
     startEndTransition(async () => {
+      try {
+        await recording.stopAndUpload();
+      } catch {
+        // Recording failures must not block End Interview.
+      }
       const result = await completeInterviewAction(interview.id);
       if ("error" in result && result.error) {
         setEndError(result.error);
@@ -186,6 +220,12 @@ export function InterviewRoomClient({
             />
             {connectionLabel(livekit.connectionState)}
           </span>
+          {canComplete && recordingId ? (
+            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full border border-red-500/40 text-red-300">
+              <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+              Recording
+            </span>
+          ) : null}
           <button
             type="button"
             onClick={() => void livekit.toggleMic()}
