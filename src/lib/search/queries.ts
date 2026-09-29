@@ -184,7 +184,12 @@ async function searchInterviewer(
         subtitle: [candidate?.name, doc.type, doc.status]
           .filter(Boolean)
           .join(" · "),
-        href: `/interviewer/lobby/${doc._id.toString()}`,
+        href:
+          doc.status === "completed"
+            ? `/interviewer/evaluations/${doc._id.toString()}`
+            : doc.status === "cancelled"
+              ? "/interviewer/interviews"
+              : `/interviewer/lobby/${doc._id.toString()}`,
       };
     });
 

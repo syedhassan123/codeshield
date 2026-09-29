@@ -4,6 +4,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import mongoose from "mongoose";
 import { connectDB } from "../src/lib/db";
 import { finalizeAttempt } from "../src/lib/exam/finalize";
 import { getStorageProvider } from "../src/lib/storage";
@@ -57,9 +58,14 @@ function staticChecks() {
   );
   assert(
     submitBlock.includes("uploadPreparedRecording") &&
-      submitBlock.indexOf("submitExamAction") <
-        submitBlock.indexOf("uploadPreparedRecording"),
-    "recording upload happens after answers are submitted",
+      submitBlock.indexOf("uploadPreparedRecording") <
+        submitBlock.indexOf("submitExamAction"),
+    "recording upload claims the row before the attempt is finalized",
+  );
+  assert(
+    !submitBlock.includes("Promise.race") &&
+      !submitBlock.includes("45_000"),
+    "submit does not race recording upload against a navigation timeout",
   );
   assert(
     submitBlock.includes("setSecurityEnabled(false)") &&
@@ -68,16 +74,18 @@ function staticChecks() {
     "security/recording hook disabled only after recorder stop",
   );
   assert(
-    !submitBlock.includes("!recording.success"),
-    "recording finalize failure does not abort exam submit",
-  );
-  assert(
     submitBlock.includes("router.replace") &&
       submitBlock.lastIndexOf("router.replace") >
+        submitBlock.lastIndexOf("uploadPreparedRecording") &&
+      submitBlock.lastIndexOf("router.replace") >
         submitBlock.lastIndexOf("submitExamAction"),
-    "navigation happens after exam submit",
+    "navigation waits for recording upload and exam submit",
   );
   assert(sessionSrc.includes("isSubmitting"), "duplicate submit guard state exists");
+  assert(
+    sessionSrc.includes("autoSubmitted.current"),
+    "submit is single-flight via autoSubmitted",
+  );
   assert(
     sessionSrc.includes("describeSubmitError"),
     "submit surfaces the real error instead of a generic message only",
@@ -94,14 +102,18 @@ function staticChecks() {
     "hook splits recorder stop from blob upload",
   );
   assert(
+    hookSrc.includes("uploadInFlightRef"),
+    "concurrent recording uploads share one in-flight promise",
+  );
+  assert(
     hookSrc.includes("finalizeInProgressRef.current") &&
       hookSrc.includes("if (finalizeInProgressRef.current) return"),
     "unmount cleanup skipped during finalize",
   );
   assert(hookSrc.includes("uploadWithRetry"), "upload retry preserved from Phase 10");
   assert(
-    hookSrc.includes("try {") && hookSrc.includes("uploadExamRecordingAction"),
-    "recording upload catches thrown server-action failures",
+    hookSrc.includes('errorMessage: "Recording upload failed."'),
+    "genuine upload failure is persisted as Recording upload failed.",
   );
 
   const browserSrc = read("src/lib/camera/browser.ts");
@@ -121,6 +133,13 @@ function staticChecks() {
     "upload idempotency for READY recordings",
   );
 
+  const finalizeSrc = read("src/lib/exam/finalize.ts");
+  assert(
+    finalizeSrc.includes('reason === "expired"') &&
+      finalizeSrc.includes("abandonIncompleteRecordings"),
+    "stale recordings are abandoned only when the attempt expires",
+  );
+
   const nextConfig = read("next.config.ts");
   assert(
     nextConfig.includes("bodySizeLimit") && nextConfig.includes("100mb"),
@@ -128,9 +147,7 @@ function staticChecks() {
   );
 }
 
-async function dbChecks() {
-  await connectDB();
-
+async function seedAttempt() {
   const student = await User.findOne({ email: "demo@codeshield.ai" });
   const assessment = await Assessment.findOne({
     status: "published",
@@ -160,65 +177,52 @@ async function dbChecks() {
     textAnswer: "",
   });
 
-  const recording = await ExamRecording.create({
-    attemptId: attempt._id,
-    userId: student!._id,
-    assessmentId: assessment!._id,
-    storageKey: `verify-submit-recording/${attempt._id.toString()}.webm`,
-    storageProvider: "local",
-    mimeType: "video/webm",
-    durationSeconds: 12,
-    fileSizeBytes: 0,
-    startedAt,
-    endedAt: null,
-    status: "RECORDING",
-  });
+  return { student, assessment, attempt, questionId, startedAt };
+}
 
+async function cleanupAttempt(attemptId: mongoose.Types.ObjectId) {
+  await Answer.deleteMany({ attemptId });
+  await Result.deleteMany({ attemptId });
+  await ExamRecording.deleteMany({ attemptId });
+  await Attempt.deleteMany({ _id: attemptId });
+}
+
+async function dbChecks() {
+  await connectDB();
+  const storage = await getStorageProvider();
+
+  const readyCase = await seedAttempt();
   try {
-    const submitted = await finalizeAttempt(attempt, "submitted");
-    assert(submitted.status === "submitted", "exam submit closes the attempt");
-    assert(submitted.resultId, "exam submit stores a result id");
-
-    const result = await Result.findById(submitted.resultId);
-    assert(result, "backend confirms a Result document exists");
-    const savedQuestion = result!.questions.find(
-      (q) => q.questionId.toString() === questionId.toString(),
-    );
-    assert(
-      savedQuestion?.selectedOptionKey === "A",
-      "submitted answers are stored on the Result",
-    );
-
-    const again = await finalizeAttempt(submitted, "submitted");
-    assert(
-      again.resultId?.toString() === submitted.resultId?.toString(),
-      "double submit does not create a second result",
-    );
-
-    const leftover = await ExamRecording.findById(recording._id);
-    assert(
-      leftover?.status === "FAILED",
-      "incomplete recording is failed when the attempt is closed",
-    );
+    const recording = await ExamRecording.create({
+      attemptId: readyCase.attempt._id,
+      userId: readyCase.student!._id,
+      assessmentId: readyCase.assessment!._id,
+      storageKey: `verify-submit-recording/${readyCase.attempt._id.toString()}.webm`,
+      storageProvider: storage.name,
+      mimeType: "video/webm",
+      durationSeconds: 0,
+      fileSizeBytes: 0,
+      startedAt: readyCase.startedAt,
+      endedAt: null,
+      status: "RECORDING",
+    });
 
     const claimed = await ExamRecording.findOneAndUpdate(
       {
         _id: recording._id,
-        userId: student!._id,
         status: { $in: ["RECORDING", "UPLOADING", "FAILED"] },
       },
       {
         $set: {
           status: "UPLOADING",
           endedAt: new Date(),
-          durationSeconds: 12,
+          durationSeconds: 18,
         },
       },
       { returnDocument: "after" },
     );
-    assert(claimed, "post-submit upload can still claim a FAILED recording");
+    assert(claimed, "upload can claim a RECORDING row before submit");
 
-    const storage = await getStorageProvider();
     const body = Buffer.from("webm-fixture");
     await storage.putObject({
       key: claimed!.storageKey,
@@ -230,17 +234,129 @@ async function dbChecks() {
     claimed!.errorMessage = "";
     await claimed!.save();
 
-    const ready = await ExamRecording.findById(recording._id);
-    assert(ready?.status === "READY", "recording reaches READY after late upload");
+    const submitted = await finalizeAttempt(readyCase.attempt, "submitted");
+    assert(submitted.status === "submitted", "exam submit closes the attempt");
+    assert(submitted.resultId, "exam submit stores a result id");
+
+    const result = await Result.findById(submitted.resultId);
+    assert(result, "backend confirms a Result document exists");
+    const savedQuestion = result!.questions.find(
+      (q) => q.questionId.toString() === readyCase.questionId.toString(),
+    );
     assert(
-      (ready?.fileSizeBytes ?? 0) > 0,
-      "late upload stores recording bytes",
+      savedQuestion?.selectedOptionKey === "A",
+      "submitted answers are stored on the Result",
+    );
+
+    const ready = await ExamRecording.findById(recording._id);
+    assert(ready?.status === "READY", "successful recording stays READY after submit");
+    assert((ready?.durationSeconds ?? 0) > 0, "READY recording stores durationSeconds");
+    assert((ready?.fileSizeBytes ?? 0) > 0, "READY recording stores fileSizeBytes");
+    assert(Boolean(ready?.storageKey), "READY recording keeps storageKey");
+    assert(
+      ready?.errorMessage !== "Attempt closed before recording upload completed.",
+      "explicit submit does not write the abandon error on a READY recording",
+    );
+
+    const again = await finalizeAttempt(submitted, "submitted");
+    assert(
+      again.resultId?.toString() === submitted.resultId?.toString(),
+      "double submit does not create a second result",
+    );
+    const afterDouble = await ExamRecording.findById(recording._id);
+    assert(afterDouble?.status === "READY", "double submit does not reopen recording upload");
+  } finally {
+    await cleanupAttempt(readyCase.attempt._id);
+  }
+
+  const failCase = await seedAttempt();
+  try {
+    const recording = await ExamRecording.create({
+      attemptId: failCase.attempt._id,
+      userId: failCase.student!._id,
+      assessmentId: failCase.assessment!._id,
+      storageKey: `verify-submit-recording-fail/${failCase.attempt._id.toString()}.webm`,
+      storageProvider: storage.name,
+      mimeType: "video/webm",
+      durationSeconds: 0,
+      fileSizeBytes: 0,
+      startedAt: failCase.startedAt,
+      endedAt: new Date(),
+      status: "FAILED",
+      errorMessage: "Recording upload failed.",
+    });
+
+    const submitted = await finalizeAttempt(failCase.attempt, "submitted");
+    assert(submitted.resultId, "exam result is created even when recording FAILED");
+    const leftover = await ExamRecording.findById(recording._id);
+    assert(leftover?.status === "FAILED", "genuine upload failure stays FAILED");
+    assert(
+      leftover?.errorMessage === "Recording upload failed.",
+      "explicit submit preserves the upload failure message",
     );
   } finally {
-    await Answer.deleteMany({ attemptId: attempt._id });
-    await Result.deleteMany({ attemptId: attempt._id });
-    await ExamRecording.deleteMany({ attemptId: attempt._id });
-    await Attempt.deleteMany({ _id: attempt._id });
+    await cleanupAttempt(failCase.attempt._id);
+  }
+
+  const recordingOpen = await seedAttempt();
+  try {
+    const recording = await ExamRecording.create({
+      attemptId: recordingOpen.attempt._id,
+      userId: recordingOpen.student!._id,
+      assessmentId: recordingOpen.assessment!._id,
+      storageKey: `verify-submit-recording-open/${recordingOpen.attempt._id.toString()}.webm`,
+      storageProvider: storage.name,
+      mimeType: "video/webm",
+      durationSeconds: 0,
+      fileSizeBytes: 0,
+      startedAt: recordingOpen.startedAt,
+      endedAt: null,
+      status: "RECORDING",
+    });
+
+    await finalizeAttempt(recordingOpen.attempt, "submitted");
+    const leftover = await ExamRecording.findById(recording._id);
+    assert(
+      leftover?.status === "RECORDING",
+      "explicit submit does not abandon a RECORDING row before client upload",
+    );
+    assert(
+      leftover?.errorMessage !== "Attempt closed before recording upload completed.",
+      "abandon error is not written on explicit submit",
+    );
+  } finally {
+    await cleanupAttempt(recordingOpen.attempt._id);
+  }
+
+  const expiredCase = await seedAttempt();
+  try {
+    const recording = await ExamRecording.create({
+      attemptId: expiredCase.attempt._id,
+      userId: expiredCase.student!._id,
+      assessmentId: expiredCase.assessment!._id,
+      storageKey: `verify-submit-recording-expired/${expiredCase.attempt._id.toString()}.webm`,
+      storageProvider: storage.name,
+      mimeType: "video/webm",
+      durationSeconds: 0,
+      fileSizeBytes: 0,
+      startedAt: expiredCase.startedAt,
+      endedAt: null,
+      status: "RECORDING",
+    });
+
+    const expired = await finalizeAttempt(expiredCase.attempt, "expired");
+    assert(expired.status === "expired", "expired finalize closes the attempt");
+    const leftover = await ExamRecording.findById(recording._id);
+    assert(
+      leftover?.status === "FAILED",
+      "expired attempts still abandon incomplete recordings",
+    );
+    assert(
+      leftover?.errorMessage === "Attempt closed before recording upload completed.",
+      "stale expired recordings keep the abandon error",
+    );
+  } finally {
+    await cleanupAttempt(expiredCase.attempt._id);
   }
 }
 

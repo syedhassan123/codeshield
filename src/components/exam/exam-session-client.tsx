@@ -398,6 +398,15 @@ export function ExamSessionClient({
           }
         }
 
+        if (security.requireCamera && recordingReadyToUpload) {
+          setSubmitPhase("Saving camera recording…");
+          try {
+            await uploadPreparedRecording();
+          } catch {
+            // Recording failure must not block exam-answer submission.
+          }
+        }
+
         setSubmitPhase("Submitting exam…");
         setSecurityEnabled(false);
 
@@ -413,18 +422,6 @@ export function ExamSessionClient({
 
         if ("attempt" in result && result.attempt) {
           setAttempt(result.attempt);
-        }
-
-        if (security.requireCamera && recordingReadyToUpload) {
-          setSubmitPhase("Saving camera recording…");
-          try {
-            await Promise.race([
-              uploadPreparedRecording(),
-              new Promise((resolve) => setTimeout(resolve, 45_000)),
-            ]);
-          } catch {
-            // Exam answers are already stored.
-          }
         }
 
         await exitFullscreenAfterSubmit();

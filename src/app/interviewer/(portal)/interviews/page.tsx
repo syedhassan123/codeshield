@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { connectDB } from "@/lib/db";
+import { interviewerInterviewHref } from "@/lib/interviewer/lifecycle";
 import { listInterviewerInterviews } from "@/lib/interviewer/queries";
 import { requirePageRole } from "@/lib/safe-auth";
 
@@ -54,7 +55,9 @@ export default async function InterviewerInterviewsPage() {
                 </td>
               </tr>
             ) : (
-              interviews.map((interview) => (
+              interviews.map((interview) => {
+                const href = interviewerInterviewHref(interview);
+                return (
                 <tr
                   key={interview.id}
                   className="border-b border-border last:border-0 hover:bg-muted/30"
@@ -69,14 +72,21 @@ export default async function InterviewerInterviewsPage() {
                   <td className="py-3 px-4">{interview.type}</td>
                   <td className="py-3 px-4">{interview.displayStatus}</td>
                   <td className="py-3 px-4 text-right">
-                    <Button asChild size="sm" variant="outline">
-                      <Link href={`/interviewer/lobby/${interview.id}`}>
-                        Open
-                      </Link>
-                    </Button>
+                    {href ? (
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={href}>
+                          {interview.status === "completed" ? "Evaluate" : "Open"}
+                        </Link>
+                      </Button>
+                    ) : (
+                      <span className="text-xs font-semibold text-muted-foreground">
+                        Cancelled
+                      </span>
+                    )}
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

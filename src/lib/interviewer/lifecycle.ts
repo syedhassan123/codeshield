@@ -7,6 +7,20 @@ export function isInterviewJoinable(status: InterviewStatus) {
   return status === "scheduled" || status === "in_progress";
 }
 
+/** Where an owned interview should open. Null means there is no live action. */
+export function interviewerInterviewHref(interview: {
+  id: string;
+  status: InterviewStatus;
+}) {
+  if (interview.status === "completed") {
+    return `/interviewer/evaluations/${interview.id}`;
+  }
+  if (interview.status === "cancelled") {
+    return null;
+  }
+  return `/interviewer/lobby/${interview.id}`;
+}
+
 /**
  * Interviewer-owned transition: scheduled → in_progress.
  * Idempotent when already in_progress.

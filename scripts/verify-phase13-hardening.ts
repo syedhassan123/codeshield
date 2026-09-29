@@ -233,13 +233,18 @@ async function mongoChecks() {
 
   const leftover = await ExamRecording.findById(recording._id);
   assert(
-    leftover?.status === "FAILED",
-    "incomplete recording is not left RECORDING after submit",
+    leftover?.status === "RECORDING",
+    "explicit submit does not abandon an in-flight RECORDING row",
   );
-  assert(leftover?.endedAt, "abandoned recording has endedAt");
 
   const abandoned = await abandonIncompleteRecordings(attempt._id);
-  assert(abandoned === 0, "READY/FAILED recordings are not abandoned again");
+  assert(abandoned === 1, "stale RECORDING rows can still be abandoned after submit");
+  const afterAbandon = await ExamRecording.findById(recording._id);
+  assert(afterAbandon?.status === "FAILED", "abandoned leftover recording is FAILED");
+  assert(afterAbandon?.endedAt, "abandoned recording has endedAt");
+
+  const abandonedAgain = await abandonIncompleteRecordings(attempt._id);
+  assert(abandonedAgain === 0, "READY/FAILED recordings are not abandoned again");
 
   const overdue = await Attempt.create({
     studentId: student!._id,

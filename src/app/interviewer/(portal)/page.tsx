@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { connectDB } from "@/lib/db";
+import { interviewerInterviewHref } from "@/lib/interviewer/lifecycle";
 import { getInterviewerDashboardMetrics } from "@/lib/interviewer/queries";
 import { requirePageRole } from "@/lib/safe-auth";
 
@@ -67,7 +68,9 @@ export default async function InterviewerDashboardPage() {
                 No interviews scheduled for today.
               </p>
             ) : (
-              metrics.todaySchedule.map((interview) => (
+              metrics.todaySchedule.map((interview) => {
+                const href = interviewerInterviewHref(interview);
+                return (
                 <div
                   key={interview.id}
                   className="flex items-center gap-3 p-3 rounded-xl border border-border hover:border-primary transition"
@@ -87,13 +90,17 @@ export default async function InterviewerDashboardPage() {
                       {interview.type}
                     </div>
                   </div>
-                  <Button asChild size="sm">
-                    <Link href={`/interviewer/lobby/${interview.id}`}>
-                      Start <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
-                  </Button>
+                  {href ? (
+                    <Button asChild size="sm">
+                      <Link href={href}>
+                        {interview.status === "completed" ? "Evaluate" : "Start"}{" "}
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </Button>
+                  ) : null}
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

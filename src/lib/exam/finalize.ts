@@ -335,7 +335,11 @@ export async function finalizeAttempt(
     { returnDocument: "after" },
   );
 
-  const abandoned = await abandonIncompleteRecordings(live._id).catch(() => 0);
+  // Explicit submit uploads first; only expiry cleans up stale RECORDING rows.
+  const abandoned =
+    reason === "expired"
+      ? await abandonIncompleteRecordings(live._id).catch(() => 0)
+      : 0;
   debugLog("RESULT", "CREATED", {
     attemptId: live._id.toString().slice(0, 8),
     reason,

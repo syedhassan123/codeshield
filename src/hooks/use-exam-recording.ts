@@ -275,6 +275,10 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
     recordingId: string;
     durationSeconds: number;
   } | null>(null);
+  const uploadInFlightRef = useRef<Promise<{
+    success: boolean;
+    error?: string;
+  }> | null>(null);
 
   const uploadWithRetry = useCallback(
     async (formData: FormData) => {
@@ -376,6 +380,15 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
       return { success: true as const };
     } catch (error) {
       setRecordingStatus("failed");
+      try {
+        await markExamRecordingFailedAction({
+          attemptId,
+          recordingId: recordingIdRef.current || undefined,
+          errorMessage: "Could not stop the camera recording.",
+        });
+      } catch {
+        // ignore
+      }
       return {
         success: false as const,
         error:
@@ -388,12 +401,22 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
 
   /**
    * Upload the blob prepared by stopRecordingForSubmit. Never throws —
-   * exam answers must already be submitted (or about to be) independently.
+   * exam answers are submitted independently afterward.
    */
   const uploadPreparedRecording = useCallback(async () => {
     if (readyRef.current) {
       return { success: true as const };
     }
+    if (uploadInFlightRef.current) {
+      return uploadInFlightRef.current as Promise<{
+        success: true;
+      } | {
+        success: false;
+        error: string;
+      }>;
+    }
+
+    const run = (async () => {
     const pending = pendingUploadRef.current;
     if (!pending) {
       setRecordingStatus("failed");
@@ -426,6 +449,15 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
         } catch {
           // ignore
         }
+        try {
+          await markExamRecordingFailedAction({
+            attemptId,
+            recordingId: pending.recordingId,
+            errorMessage: "Recording upload failed.",
+          });
+        } catch {
+          // ignore
+        }
         finalizeInProgressRef.current = false;
         return { success: false as const, error: uploaded.error };
       }
@@ -445,7 +477,7 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
         await markExamRecordingFailedAction({
           attemptId,
           recordingId: pending.recordingId,
-          errorMessage: "Recording upload failed",
+          errorMessage: "Recording upload failed.",
         });
       } catch {
         // ignore
@@ -458,6 +490,14 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
             ? error.message
             : "Recording upload failed.",
       };
+    }
+    })();
+
+    uploadInFlightRef.current = run;
+    try {
+      return await run;
+    } finally {
+      uploadInFlightRef.current = null;
     }
   }, [attemptId, report, uploadWithRetry]);
 
