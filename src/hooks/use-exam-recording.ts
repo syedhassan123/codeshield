@@ -453,7 +453,7 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
           await markExamRecordingFailedAction({
             attemptId,
             recordingId: pending.recordingId,
-            errorMessage: "Recording upload failed.",
+            errorMessage: uploaded.error || "Recording upload failed.",
           });
         } catch {
           // ignore
@@ -473,11 +473,15 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
       } catch {
         // ignore
       }
+      const thrownMessage =
+        error instanceof Error && error.message.trim()
+          ? error.message.slice(0, 500)
+          : "Recording upload failed.";
       try {
         await markExamRecordingFailedAction({
           attemptId,
           recordingId: pending.recordingId,
-          errorMessage: "Recording upload failed.",
+          errorMessage: thrownMessage,
         });
       } catch {
         // ignore
@@ -485,10 +489,7 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
       finalizeInProgressRef.current = false;
       return {
         success: false as const,
-        error:
-          error instanceof Error && error.message
-            ? error.message
-            : "Recording upload failed.",
+        error: thrownMessage,
       };
     }
     })();

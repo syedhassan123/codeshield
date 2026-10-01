@@ -112,8 +112,9 @@ function staticChecks() {
   );
   assert(hookSrc.includes("uploadWithRetry"), "upload retry preserved from Phase 10");
   assert(
-    hookSrc.includes('errorMessage: "Recording upload failed."'),
-    "genuine upload failure is persisted as Recording upload failed.",
+    hookSrc.includes("errorMessage: uploaded.error") &&
+      hookSrc.includes("errorMessage: thrownMessage"),
+    "upload failure persists the action or thrown error instead of a generic overwrite",
   );
 
   const browserSrc = read("src/lib/camera/browser.ts");
@@ -144,6 +145,11 @@ function staticChecks() {
   assert(
     nextConfig.includes("bodySizeLimit") && nextConfig.includes("100mb"),
     "server action body limit supports large recordings",
+  );
+  assert(
+    nextConfig.includes("middlewareClientMaxBodySize") &&
+      nextConfig.includes("100mb"),
+    "middleware body clone limit matches the 100mb Server Action limit",
   );
 }
 

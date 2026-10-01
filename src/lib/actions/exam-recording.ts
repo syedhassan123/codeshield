@@ -36,6 +36,19 @@ function recLog(lines: string[]) {
   console.log("");
 }
 
+function persistableRecordingError(
+  error: unknown,
+  fallback = "Recording upload failed.",
+) {
+  const message =
+    error instanceof Error && error.message.trim()
+      ? error.message
+      : typeof error === "string" && error.trim()
+        ? error
+        : fallback;
+  return message.slice(0, 500);
+}
+
 const beginSchema = z.object({
   attemptId: z.string().min(1),
   mimeType: z.string().min(1),
@@ -309,27 +322,31 @@ export async function uploadExamRecordingAction(formData: FormData) {
         status: "READY" as const,
       };
     } catch (uploadError) {
+      const message = persistableRecordingError(uploadError);
       claimed.status = "FAILED";
       claimed.endedAt = claimed.endedAt || new Date();
-      claimed.errorMessage =
-        uploadError instanceof Error ? "Recording upload failed." : "Upload failed";
+      claimed.errorMessage = message;
       await claimed.save();
       recLog([
         "Upload failed",
         `attemptId=${maskId(parsed.data.attemptId)}`,
+        `error=${message}`,
       ]);
       return {
         success: false as const,
-        error: "Recording upload failed.",
+        error: message,
         status: "FAILED" as const,
       };
     }
   } catch (error) {
     op.fail(error);
     if (error instanceof ActionError) {
-      return { success: false as const, error: error.message };
+      return { success: false as const, error: persistableRecordingError(error) };
     }
-    return { success: false as const, error: "Recording upload failed." };
+    return {
+      success: false as const,
+      error: persistableRecordingError(error),
+    };
   }
 }
 
