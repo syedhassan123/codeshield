@@ -316,11 +316,23 @@ npx tsx --env-file=.env.local scripts/verify-phase24-livekit-interview.ts --live
 npx tsx --env-file=.env.local scripts/verify-phase24-livekit-interview.ts --live-egress --interview-id=<id>
 ```
 
+## Phase 25 — AI-assisted subjective grading
+
+Admin-only suggestion for `subjective` questions on `/admin/results/[attemptId]`. The model returns suggested marks and short feedback into the existing draft fields. **Save grade** is still the only write to `Result`.
+
+- Server action `suggestSubjectiveGradeAction` is `requireAdmin`. MCQ and coding are rejected. In-progress attempts and empty answers are rejected.
+- Prompt sends only the question text, student answer, max marks, and `Question.explanation` (rubric). No name, email, or other answers.
+- Missing `AI_GRADING_API_KEY` returns "AI grading is not configured." Manual grading is unchanged.
+- Suggestions are not stored. Rate limit: 6 requests per admin per minute.
+
+```bash
+npx tsx --env-file=.env.local scripts/verify-phase25-ai-grading.ts
+```
+
 ## Still mock / future work
 
 - Interview room question list and local code/notes panels (static/local-only)
 - Student coding practice (`/student/coding`) — **deferred**
-- AI subjective evaluation assist
 - External LLM-generated summaries (Phase 11 uses rule-based automated review text)
 - Dev-tools detection, violation-based auto-submit, and coding-editor paste-blocking enforcement (Phase 18 stores these preferences but does not yet enforce them)
 
@@ -346,6 +358,7 @@ npx tsx --env-file=.env.local scripts/verify-phase21-analytics.ts
 npx tsx --env-file=.env.local scripts/verify-phase22-password-reset.ts
 npx tsx --env-file=.env.local scripts/verify-phase23-workspace-search.ts
 npx tsx --env-file=.env.local scripts/verify-phase24-livekit-interview.ts
+npx tsx --env-file=.env.local scripts/verify-phase25-ai-grading.ts
 npx tsx --env-file=.env.local scripts/verify-production-submission-recording.ts
 ```
 

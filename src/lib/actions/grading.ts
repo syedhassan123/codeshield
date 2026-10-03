@@ -21,8 +21,15 @@ import {
   serializeResult,
 } from "@/lib/serializers";
 import {
+  aiGradeLog,
+  assertAiGradingRateLimit,
+  getSubjectiveGradeContext,
+  requestSubjectiveGradeSuggestion,
+} from "@/lib/ai/subjective-grade";
+import {
   adminAttemptFilterSchema,
   gradeQuestionSchema,
+  suggestSubjectiveGradeSchema,
 } from "@/lib/validators/grading";
 import { Assessment } from "@/models/Assessment";
 import { Attempt } from "@/models/Attempt";
@@ -460,6 +467,65 @@ export async function gradeQuestionAction(raw: unknown) {
       attempt: serializeAttempt(attempt),
     });
   } catch (error) {
+    return op.respondError(error);
+  }
+}
+
+export async function suggestSubjectiveGradeAction(raw: unknown) {
+  const op = createServerOp({
+    domain: "GRADING",
+    operation: "SUGGEST_SUBJECTIVE",
+    source: "SERVER-ACTION",
+  });
+  const startedAt = Date.now();
+  aiGradeLog("START");
+
+  try {
+    const session = await requireAdmin();
+    op.auth(session.user);
+    op.allowed("admin suggest subjective grade");
+    aiGradeLog("AUTH: passed");
+
+    const data = suggestSubjectiveGradeSchema.parse(raw);
+    aiGradeLog("VALIDATION: passed", {
+      attemptId: maskId(data.attemptId),
+      questionId: maskId(data.questionId),
+    });
+    await connectDB();
+
+    assertAiGradingRateLimit(session.user.id);
+    const context = await getSubjectiveGradeContext(
+      data.attemptId,
+      data.questionId,
+    );
+    const suggestion = await requestSubjectiveGradeSuggestion(context);
+
+    debugLog("GRADING", "AI_SUGGEST", {
+      attemptId: maskId(data.attemptId),
+      questionId: maskId(data.questionId),
+    });
+    aiGradeLog("RESULT: suggestion returned", {
+      suggestedMarks: suggestion.suggestedMarks,
+      feedbackLength: suggestion.feedback.length,
+    });
+    aiGradeLog(`TOTAL_DURATION_MS: ${Date.now() - startedAt}`);
+    aiGradeLog("END");
+
+    return op.respond({
+      suggestedMarks: suggestion.suggestedMarks,
+      feedback: suggestion.feedback,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown";
+    if (message === "You must be signed in." || message.includes("not allowed")) {
+      aiGradeLog("AUTH: failed");
+      aiGradeLog("ERROR_STAGE: AUTH");
+    } else if (error instanceof ZodError) {
+      aiGradeLog("VALIDATION: failed");
+      aiGradeLog("ERROR_STAGE: VALIDATION");
+    }
+    aiGradeLog(`TOTAL_DURATION_MS: ${Date.now() - startedAt}`);
+    aiGradeLog("END");
     return op.respondError(error);
   }
 }

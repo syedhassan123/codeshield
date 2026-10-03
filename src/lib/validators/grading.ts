@@ -26,3 +26,8 @@ export const gradeQuestionSchema = z.object({
     .optional()
     .default(""),
 });
+
+export const suggestSubjectiveGradeSchema = z.object({
+  attemptId: z.string().min(1).max(64),
+  questionId: z.string().min(1).max(64),
+});

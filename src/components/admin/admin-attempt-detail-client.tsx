@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   completeEvaluationAction,
   gradeQuestionAction,
+  suggestSubjectiveGradeAction,
 } from "@/lib/actions/grading";
 import type { SerializedAttempt, SerializedResult } from "@/lib/serializers";
 import { displayType } from "@/lib/serializers";
@@ -69,6 +70,7 @@ export function AdminAttemptDetailClient({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [pending, startTransition] = useTransition();
+  const [suggestingId, setSuggestingId] = useState<string | null>(null);
 
   const saveGrade = (questionId: string) => {
     const draft = drafts[questionId];
@@ -93,6 +95,52 @@ export function AdminAttemptDetailClient({
         console.log(res.result)
       }
     });
+  };
+
+  const suggestGrade = (questionId: string) => {
+    if (suggestingId) return;
+    console.log("[AI-GRADING-UI] CLICK");
+    setError("");
+    setMessage("");
+    setSuggestingId(questionId);
+    void (async () => {
+      try {
+        console.log("[AI-GRADING-UI] REQUEST_STARTED");
+        const res = await suggestSubjectiveGradeAction({
+          attemptId: attempt.id,
+          questionId,
+        });
+        console.log("[AI-GRADING-UI] RESPONSE_RECEIVED");
+        if ("error" in res && res.error) {
+          console.log("[AI-GRADING-UI] ERROR");
+          console.log("[AI-GRADING] ERROR_STAGE: CLIENT");
+          setError(res.error);
+          return;
+        }
+        if ("suggestedMarks" in res) {
+          setDrafts((prev) => ({
+            ...prev,
+            [questionId]: {
+              marks: String(res.suggestedMarks),
+              feedback: res.feedback,
+            },
+          }));
+          console.log("[AI-GRADING-UI] DRAFT_UPDATED", {
+            suggestedMarks: res.suggestedMarks,
+            feedbackLength: res.feedback.length,
+          });
+          setMessage(
+            "AI suggestion loaded. Review or edit it, then click Save grade. Nothing is saved yet. Student answers are sent to a third-party AI provider for this suggestion.",
+          );
+        }
+      } catch {
+        console.log("[AI-GRADING-UI] ERROR");
+        console.log("[AI-GRADING] ERROR_STAGE: CLIENT");
+        setError("AI grading is unavailable right now.");
+      } finally {
+        setSuggestingId(null);
+      }
+    })();
   };
 
   const complete = () => {
@@ -436,6 +484,22 @@ export function AdminAttemptDetailClient({
                           >
                             Save grade
                           </Button>
+                          <div className="md:col-span-3 flex flex-wrap items-center gap-3">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={Boolean(suggestingId)}
+                              onClick={() => suggestGrade(q.questionId)}
+                            >
+                              {suggestingId === q.questionId
+                                ? "Suggesting…"
+                                : "Suggest with AI"}
+                            </Button>
+                            <p className="text-xs text-muted-foreground">
+                              Suggestion only. Save grade writes the final marks.
+                            </p>
+                          </div>
                         </div>
                       )}
                     </>
