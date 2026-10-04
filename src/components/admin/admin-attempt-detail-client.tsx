@@ -107,6 +107,7 @@ export function AdminAttemptDetailClient({
       try {
         console.log("[AI-GRADING-UI] REQUEST_STARTED");
         const res = await suggestSubjectiveGradeAction({
+          attempt:attempt,
           attemptId: attempt.id,
           questionId,
         });
@@ -126,6 +127,7 @@ export function AdminAttemptDetailClient({
             },
           }));
           console.log("[AI-GRADING-UI] DRAFT_UPDATED", {
+            response:res,
             suggestedMarks: res.suggestedMarks,
             feedbackLength: res.feedback.length,
           });

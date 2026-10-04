@@ -74,6 +74,10 @@ export function AdminResultsClient() {
     });
   };
 
+
+  console.log("Results: ",rows);
+
+
   useEffect(() => {
     startTransition(async () => {
       const opts = await listAdminAttemptFilterOptionsAction();
