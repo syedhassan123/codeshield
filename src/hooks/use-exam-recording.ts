@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   beginExamRecordingAction,
+  confirmExamRecordingUploadAction,
   getActiveExamRecordingAction,
+  getExamRecordingUploadUrlAction,
   markExamRecordingFailedAction,
-  uploadExamRecordingAction,
 } from "@/lib/actions/exam-recording";
 import { recordExamSecurityEventAction } from "@/lib/actions/exam-security";
 import {
@@ -35,15 +36,55 @@ export type ExamRecordingStatus =
 
 const UPLOAD_RETRIES = 3;
 const UPLOAD_RETRY_MS = 1500;
+const S3_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function examRecClientLog(
+  event: string,
+  meta: Record<string, string | number | boolean | undefined | null> = {},
+) {
+  const parts = Object.entries(meta)
+    .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `${k}=${v}`);
+  console.log(
+    `[EXAM-RECORDING] ${event}${parts.length ? ` ${parts.join(" ")}` : ""}`,
+  );
+}
+
+async function putBlobDirect(
+  uploadUrl: string,
+  blob: Blob,
+  headers: Record<string, string>,
+) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), S3_UPLOAD_TIMEOUT_MS);
+  try {
+    const response = await fetch(uploadUrl, {
+      method: "PUT",
+      body: blob,
+      headers,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        text.trim().slice(0, 200) ||
+          `Upload failed with HTTP ${response.status}`,
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Camera preview + MediaRecorder during an active exam.
  * Does not start until enabled=true (session in progress).
- * Stop the recorder during submit, then upload after answers are stored.
+ * Stop the recorder during submit, then upload directly to storage
+ * via a short-lived presigned URL (video bytes never enter a Server Action).
  */
 export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
   const [cameraActive, setCameraActive] = useState(false);
@@ -281,20 +322,122 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
   }> | null>(null);
 
   const uploadWithRetry = useCallback(
-    async (formData: FormData) => {
+    async (pending: {
+      blob: Blob;
+      recordingId: string;
+      durationSeconds: number;
+    }) => {
       let lastError = "Recording upload failed.";
       for (let attempt = 0; attempt < UPLOAD_RETRIES; attempt += 1) {
         try {
-          const uploaded = await uploadExamRecordingAction(formData);
-          if (uploaded.success) {
-            return uploaded;
+          examRecClientLog("PRESIGN_REQUEST_STARTED", {
+            attemptId,
+            recordingId: pending.recordingId,
+            fileSizeBytes: pending.blob.size,
+            mimeType: pending.blob.type || mimeTypeRef.current || "video/webm",
+            durationSeconds: pending.durationSeconds,
+            retry: attempt,
+          });
+
+          const prepared = await getExamRecordingUploadUrlAction({
+            attemptId,
+            recordingId: pending.recordingId,
+            durationSeconds: pending.durationSeconds,
+          });
+
+          if (!prepared.success) {
+            lastError = prepared.error || lastError;
+            examRecClientLog("PRESIGN_FAILED", {
+              error: lastError,
+              retry: attempt,
+            });
+          } else if ("alreadyReady" in prepared && prepared.alreadyReady) {
+            examRecClientLog("PRESIGN_SUCCESS", {
+              alreadyReady: true,
+              status: "READY",
+            });
+            return { success: true as const };
+          } else if ("uploadUrl" in prepared && prepared.uploadUrl) {
+            examRecClientLog("PRESIGN_SUCCESS", {
+              storageProvider: prepared.storageProvider,
+              mimeType: prepared.mimeType,
+              fileSizeBytes: pending.blob.size,
+            });
+
+            const uploadStartedAt = Date.now();
+            examRecClientLog("S3_UPLOAD_STARTED", {
+              fileSizeBytes: pending.blob.size,
+              mimeType:
+                prepared.headers?.["Content-Type"] ||
+                pending.blob.type ||
+                "video/webm",
+              storageProvider: prepared.storageProvider,
+            });
+
+            try {
+              await putBlobDirect(
+                prepared.uploadUrl,
+                pending.blob,
+                prepared.headers || {
+                  "Content-Type":
+                    pending.blob.type || mimeTypeRef.current || "video/webm",
+                },
+              );
+              examRecClientLog("S3_UPLOAD_SUCCESS", {
+                fileSizeBytes: pending.blob.size,
+                uploadDurationMs: Date.now() - uploadStartedAt,
+              });
+            } catch (uploadError) {
+              lastError =
+                uploadError instanceof Error && uploadError.message
+                  ? uploadError.message
+                  : lastError;
+              examRecClientLog("S3_UPLOAD_FAILED", {
+                error: lastError,
+                uploadDurationMs: Date.now() - uploadStartedAt,
+                retry: attempt,
+              });
+              if (attempt < UPLOAD_RETRIES - 1) {
+                await sleep(UPLOAD_RETRY_MS * (attempt + 1));
+              }
+              continue;
+            }
+
+            examRecClientLog("UPLOAD_CONFIRM_STARTED", {
+              fileSizeBytes: pending.blob.size,
+              durationSeconds: pending.durationSeconds,
+            });
+            const confirmed = await confirmExamRecordingUploadAction({
+              attemptId,
+              recordingId: pending.recordingId,
+              fileSizeBytes: pending.blob.size,
+              durationSeconds: pending.durationSeconds,
+            });
+            if (confirmed.success) {
+              examRecClientLog("UPLOAD_CONFIRM_SUCCESS", {
+                status: "READY",
+                fileSizeBytes: pending.blob.size,
+                durationSeconds: pending.durationSeconds,
+              });
+              return { success: true as const };
+            }
+            lastError = confirmed.error || lastError;
+            examRecClientLog("UPLOAD_CONFIRM_FAILED", {
+              error: lastError,
+              retry: attempt,
+            });
+          } else {
+            lastError = "Could not prepare recording upload.";
           }
-          lastError = uploaded.error || lastError;
         } catch (error) {
           lastError =
             error instanceof Error && error.message
               ? error.message
               : lastError;
+          examRecClientLog("S3_UPLOAD_FAILED", {
+            error: lastError,
+            retry: attempt,
+          });
         }
         if (attempt < UPLOAD_RETRIES - 1) {
           await sleep(UPLOAD_RETRY_MS * (attempt + 1));
@@ -302,7 +445,7 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
       }
       return { success: false as const, error: lastError };
     },
-    [],
+    [attemptId],
   );
 
   /**
@@ -337,6 +480,12 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
         0,
         Math.round((Date.now() - (startedAtRef.current || Date.now())) / 1000),
       );
+
+      examRecClientLog("RECORDING_STOPPED", {
+        fileSizeBytes: blob?.size ?? 0,
+        mimeType: blob?.type || mimeTypeRef.current || "video/webm",
+        durationSeconds,
+      });
 
       try {
         void report("RECORDING_STOPPED", { durationSeconds });
@@ -400,8 +549,8 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
   }, [attemptId, detachTrackEndedHandler, report]);
 
   /**
-   * Upload the blob prepared by stopRecordingForSubmit. Never throws —
-   * exam answers are submitted independently afterward.
+   * Upload the blob prepared by stopRecordingForSubmit via direct storage PUT.
+   * Never throws — exam answers are submitted independently afterward.
    */
   const uploadPreparedRecording = useCallback(async () => {
     if (readyRef.current) {
@@ -417,81 +566,79 @@ export function useExamRecording({ attemptId, enabled, deviceId }: Options) {
     }
 
     const run = (async () => {
-    const pending = pendingUploadRef.current;
-    if (!pending) {
-      setRecordingStatus("failed");
-      finalizeInProgressRef.current = false;
-      return {
-        success: false as const,
-        error: "No recording data was captured.",
-      };
-    }
+      const pending = pendingUploadRef.current;
+      if (!pending) {
+        setRecordingStatus("failed");
+        finalizeInProgressRef.current = false;
+        return {
+          success: false as const,
+          error: "No recording data was captured.",
+        };
+      }
 
-    setRecordingStatus("uploading");
-    const formData = new FormData();
-    formData.set("attemptId", attemptId);
-    formData.set("recordingId", pending.recordingId);
-    formData.set("durationSeconds", String(pending.durationSeconds));
-    formData.set(
-      "file",
-      pending.blob,
-      `exam-${attemptId}.${pending.blob.type.includes("mp4") ? "mp4" : "webm"}`,
-    );
+      setRecordingStatus("uploading");
+      setCameraWarning("Uploading exam recording…");
 
-    try {
-      const uploaded = await uploadWithRetry(formData);
-      if (!uploaded.success) {
+      try {
+        const uploaded = await uploadWithRetry(pending);
+        if (!uploaded.success) {
+          setRecordingStatus("failed");
+          setCameraWarning(
+            uploaded.error ||
+              "Recording upload failed. Your answers can still be submitted.",
+          );
+          try {
+            await report("RECORDING_UPLOAD_FAILED", {
+              reason: "upload_retries_exhausted",
+            });
+          } catch {
+            // ignore
+          }
+          try {
+            await markExamRecordingFailedAction({
+              attemptId,
+              recordingId: pending.recordingId,
+              errorMessage: uploaded.error || "Recording upload failed.",
+            });
+          } catch {
+            // ignore
+          }
+          finalizeInProgressRef.current = false;
+          return { success: false as const, error: uploaded.error };
+        }
+        setRecordingStatus("ready");
+        setCameraWarning("");
+        readyRef.current = true;
+        pendingUploadRef.current = null;
+        finalizeInProgressRef.current = false;
+        return { success: true as const };
+      } catch (error) {
         setRecordingStatus("failed");
         try {
-          await report("RECORDING_UPLOAD_FAILED", {
-            reason: "upload_retries_exhausted",
-          });
+          await report("RECORDING_UPLOAD_FAILED", { reason: "upload_threw" });
         } catch {
           // ignore
         }
+        const thrownMessage =
+          error instanceof Error && error.message.trim()
+            ? error.message.slice(0, 500)
+            : "Recording upload failed.";
+        setCameraWarning(thrownMessage);
         try {
           await markExamRecordingFailedAction({
             attemptId,
             recordingId: pending.recordingId,
-            errorMessage: uploaded.error || "Recording upload failed.",
+            errorMessage: thrownMessage,
           });
         } catch {
           // ignore
         }
         finalizeInProgressRef.current = false;
-        return { success: false as const, error: uploaded.error };
+        return {
+          success: false as const,
+          error: thrownMessage,
+        };
       }
-      setRecordingStatus("ready");
-      readyRef.current = true;
-      pendingUploadRef.current = null;
-      finalizeInProgressRef.current = false;
-      return { success: true as const };
-    } catch (error) {
-      setRecordingStatus("failed");
-      try {
-        await report("RECORDING_UPLOAD_FAILED", { reason: "upload_threw" });
-      } catch {
-        // ignore
-      }
-      const thrownMessage =
-        error instanceof Error && error.message.trim()
-          ? error.message.slice(0, 500)
-          : "Recording upload failed.";
-      try {
-        await markExamRecordingFailedAction({
-          attemptId,
-          recordingId: pending.recordingId,
-          errorMessage: thrownMessage,
-        });
-      } catch {
-        // ignore
-      }
-      finalizeInProgressRef.current = false;
-      return {
-        success: false as const,
-        error: thrownMessage,
-      };
-    }
     })();
 
     uploadInFlightRef.current = run;

@@ -3127,7 +3127,7 @@ function AiSuggestButton({
         if (!loading) onClick();
       }}
       className={cn(
-        "group relative isolate inline-flex h-10 items-center gap-2 overflow-hidden rounded-full border border-border/60 bg-background/70 px-4 text-sm font-semibold shadow-sm backdrop-blur-md transition-all duration-300",
+        "group relative isolate inline-flex h-10 items-center gap-2 overflow-hidden rounded-full border border-border/60 bg-background/70 px-4 text-sm cursor-pointer font-semibold shadow-sm backdrop-blur-md transition-all duration-300",
         "hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 active:scale-95",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60",
         "disabled:pointer-events-none disabled:opacity-50",

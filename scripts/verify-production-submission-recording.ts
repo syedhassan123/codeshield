@@ -112,6 +112,17 @@ function staticChecks() {
   );
   assert(hookSrc.includes("uploadWithRetry"), "upload retry preserved from Phase 10");
   assert(
+    hookSrc.includes("getExamRecordingUploadUrlAction") &&
+      hookSrc.includes("confirmExamRecordingUploadAction") &&
+      hookSrc.includes("putBlobDirect"),
+    "exam recording uploads via presign + direct browser PUT",
+  );
+  assert(
+    !hookSrc.includes("uploadExamRecordingAction") &&
+      !hookSrc.includes("formData.set(\"file\""),
+    "exam recording does not send video bytes through a Server Action FormData",
+  );
+  assert(
     hookSrc.includes("errorMessage: uploaded.error") &&
       hookSrc.includes("errorMessage: thrownMessage"),
     "upload failure persists the action or thrown error instead of a generic overwrite",
@@ -125,13 +136,37 @@ function staticChecks() {
 
   const actionSrc = read("src/lib/actions/exam-recording.ts");
   assert(
+    actionSrc.includes("getExamRecordingUploadUrlAction") &&
+      actionSrc.includes("confirmExamRecordingUploadAction"),
+    "presign and confirm upload actions exist",
+  );
+  assert(
     actionSrc.includes('status: { $in: ["RECORDING", "UPLOADING", "FAILED"] }') &&
       actionSrc.includes('status: "READY"'),
-    "upload action claims RECORDING/UPLOADING/FAILED then READY",
+    "presign claims RECORDING/UPLOADING/FAILED then confirm marks READY",
   );
   assert(
     actionSrc.includes('recording.status === "READY"'),
     "upload idempotency for READY recordings",
+  );
+  assert(
+    actionSrc.includes("getSignedPutUrl") || actionSrc.includes("storage.getSignedPutUrl"),
+    "presign uses storage signed PUT helper",
+  );
+
+  const storageSrc = read("src/lib/storage/index.ts");
+  assert(
+    storageSrc.includes("getSignedPutUrl") && storageSrc.includes("headObject"),
+    "storage provider supports signed PUT and headObject",
+  );
+
+  const localUploadRoute = read(
+    "src/app/api/student/exam-recordings/[recordingId]/upload/route.ts",
+  );
+  assert(
+    localUploadRoute.includes("consumeLocalUploadToken") &&
+      localUploadRoute.includes("export async function PUT"),
+    "local storage has a tokenized student PUT upload route",
   );
 
   const finalizeSrc = read("src/lib/exam/finalize.ts");
@@ -141,15 +176,17 @@ function staticChecks() {
     "stale recordings are abandoned only when the attempt expires",
   );
 
+  // Body limits remain as defense-in-depth for other payloads; exam video
+  // no longer travels through Server Actions.
   const nextConfig = read("next.config.ts");
   assert(
     nextConfig.includes("bodySizeLimit") && nextConfig.includes("100mb"),
-    "server action body limit supports large recordings",
+    "server action body limit remains configured",
   );
   assert(
     nextConfig.includes("middlewareClientMaxBodySize") &&
       nextConfig.includes("100mb"),
-    "middleware body clone limit matches the 100mb Server Action limit",
+    "middleware body clone limit remains configured",
   );
 }
 

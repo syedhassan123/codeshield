@@ -10,6 +10,7 @@ import {
   maskId,
 } from "@/lib/debug";
 import { getOwnedAttempt } from "@/lib/exam/finalize";
+import { randomBytes } from "crypto";
 import {
   buildRecordingObjectKey,
   getStorageProvider,
@@ -17,8 +18,11 @@ import {
   readLocalRecordingFile,
 } from "@/lib/storage";
 import { storeLocalPlaybackToken } from "@/lib/storage/local-playback-tokens";
+import { storeLocalUploadToken } from "@/lib/storage/local-upload-tokens";
 import { ExamRecording } from "@/models/ExamRecording";
 import { Attempt } from "@/models/Attempt";
+
+const PRESIGN_EXPIRES_SECONDS = 900;
 
 function camLog(lines: string[]) {
   if (!isVerboseDebugEnabled()) return;
@@ -34,6 +38,19 @@ function recLog(lines: string[]) {
   console.log("[RECORDING]");
   for (const line of lines) console.log(line);
   console.log("");
+}
+
+/** Safe exam-recording lifecycle logs — never log credentials or full URLs. */
+function examRecLog(
+  event: string,
+  meta: Record<string, string | number | boolean | undefined | null> = {},
+) {
+  const parts = Object.entries(meta)
+    .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `${k}=${v}`);
+  console.log(
+    `[EXAM-RECORDING] ${event}${parts.length ? ` ${parts.join(" ")}` : ""}`,
+  );
 }
 
 function persistableRecordingError(
@@ -52,12 +69,6 @@ function persistableRecordingError(
 const beginSchema = z.object({
   attemptId: z.string().min(1),
   mimeType: z.string().min(1),
-});
-
-const uploadSchema = z.object({
-  attemptId: z.string().min(1),
-  recordingId: z.string().min(1),
-  durationSeconds: z.coerce.number().min(0).default(0),
 });
 
 export async function beginExamRecordingAction(raw: unknown) {
@@ -196,14 +207,28 @@ export async function getActiveExamRecordingAction(attemptId: string) {
   }
 }
 
+const uploadUrlSchema = z.object({
+  attemptId: z.string().min(1),
+  recordingId: z.string().min(1),
+  durationSeconds: z.coerce.number().min(0).default(0),
+});
+
+const confirmUploadSchema = z.object({
+  attemptId: z.string().min(1),
+  recordingId: z.string().min(1),
+  fileSizeBytes: z.coerce.number().int().positive(),
+  durationSeconds: z.coerce.number().min(0).default(0),
+});
+
 /**
- * Finalize + upload recording after successful exam submit.
- * Accepts FormData: attemptId, recordingId, durationSeconds, file
+ * Issue a short-lived PUT URL so the browser can upload the recording
+ * directly to storage (S3 presigned PUT, or local tokenized API route).
+ * Does NOT accept video bytes.
  */
-export async function uploadExamRecordingAction(formData: FormData) {
+export async function getExamRecordingUploadUrlAction(raw: unknown) {
   const op = createServerOp({
     domain: "EXAM",
-    operation: "RECORDING_UPLOAD",
+    operation: "RECORDING_PRESIGN",
     source: "SERVER-ACTION",
   });
 
@@ -211,19 +236,16 @@ export async function uploadExamRecordingAction(formData: FormData) {
     const session = await requireStudent();
     op.auth(session.user);
 
-    const parsed = uploadSchema.safeParse({
-      attemptId: formData.get("attemptId"),
-      recordingId: formData.get("recordingId"),
-      durationSeconds: formData.get("durationSeconds") ?? 0,
-    });
+    const parsed = uploadUrlSchema.safeParse(raw);
     if (!parsed.success) {
-      return { success: false as const, error: "Invalid recording upload." };
+      return { success: false as const, error: "Invalid recording upload request." };
     }
 
-    const file = formData.get("file");
-    if (!(file instanceof Blob) || file.size <= 0) {
-      return { success: false as const, error: "Recording file missing." };
-    }
+    examRecLog("PRESIGN_REQUEST_STARTED", {
+      attemptId: maskId(parsed.data.attemptId),
+      recordingId: maskId(parsed.data.recordingId),
+      durationSeconds: parsed.data.durationSeconds,
+    });
 
     await connectDB();
     const attempt = await getOwnedAttempt(
@@ -239,14 +261,19 @@ export async function uploadExamRecordingAction(formData: FormData) {
       throw new ActionError("Unauthorized");
     }
 
-    if (recording.status === "READY") {
-      if (recording.fileSizeBytes > 0 && recording.endedAt) {
-        return {
-          success: true as const,
-          recordingId: recording._id.toString(),
-          status: "READY" as const,
-        };
-      }
+    if (recording.status === "READY" && recording.fileSizeBytes > 0) {
+      examRecLog("PRESIGN_SUCCESS", {
+        attemptId: maskId(parsed.data.attemptId),
+        recordingId: maskId(recording._id.toString()),
+        status: "READY",
+        alreadyReady: true,
+      });
+      return {
+        success: true as const,
+        alreadyReady: true as const,
+        recordingId: recording._id.toString(),
+        status: "READY" as const,
+      };
     }
 
     const claimed = await ExamRecording.findOneAndUpdate(
@@ -260,6 +287,7 @@ export async function uploadExamRecordingAction(formData: FormData) {
           status: "UPLOADING",
           endedAt: new Date(),
           durationSeconds: parsed.data.durationSeconds,
+          errorMessage: "",
         },
       },
       { returnDocument: "after" },
@@ -270,6 +298,7 @@ export async function uploadExamRecordingAction(formData: FormData) {
       if (latest?.status === "READY" && latest.fileSizeBytes > 0) {
         return {
           success: true as const,
+          alreadyReady: true as const,
           recordingId: latest._id.toString(),
           status: "READY" as const,
         };
@@ -277,69 +306,193 @@ export async function uploadExamRecordingAction(formData: FormData) {
       throw new ActionError("Recording could not be finalized.");
     }
 
-    recLog([
-      "Upload started",
-      `attemptId=${maskId(parsed.data.attemptId)}`,
-      `bytes=${file.size}`,
-    ]);
-
+    const contentType = claimed.mimeType || "video/webm";
     const storage = await getStorageProvider();
-    const buffer = Buffer.from(await file.arrayBuffer());
 
-    if (buffer.length <= 0) {
-      claimed.status = "FAILED";
-      claimed.errorMessage = "Empty recording";
-      claimed.endedAt = claimed.endedAt || new Date();
-      await claimed.save();
-      return {
-        success: false as const,
-        error: "Recording file missing.",
-        status: "FAILED" as const,
-      };
-    }
-
-    try {
-      await storage.putObject({
-        key: claimed.storageKey,
-        body: buffer,
-        contentType: claimed.mimeType || file.type || "video/webm",
+    if (storage.name === "s3") {
+      if (!storage.getSignedPutUrl) {
+        throw new ActionError("S3 upload URL is not available.");
+      }
+      const uploadUrl = await storage.getSignedPutUrl(
+        claimed.storageKey,
+        contentType,
+        PRESIGN_EXPIRES_SECONDS,
+      );
+      examRecLog("PRESIGN_SUCCESS", {
+        attemptId: maskId(parsed.data.attemptId),
+        recordingId: maskId(claimed._id.toString()),
+        storageProvider: "s3",
+        mimeType: contentType,
+        expiresInSeconds: PRESIGN_EXPIRES_SECONDS,
       });
-      claimed.fileSizeBytes = buffer.length;
-      claimed.endedAt = claimed.endedAt || new Date();
-      claimed.status = "READY";
-      claimed.errorMessage = "";
-      await claimed.save();
-
-      recLog([
-        "Upload successful",
-        `attemptId=${maskId(parsed.data.attemptId)}`,
-        `recordingId=${maskId(claimed._id.toString())}`,
-      ]);
-      op.success({ recordingId: claimed._id.toString(), status: "READY" });
+      op.success({ recordingId: claimed._id.toString(), provider: "s3" });
       return {
         success: true as const,
+        alreadyReady: false as const,
         recordingId: claimed._id.toString(),
+        uploadUrl,
+        method: "PUT" as const,
+        headers: { "Content-Type": contentType },
+        expiresInSeconds: PRESIGN_EXPIRES_SECONDS,
+        storageProvider: "s3" as const,
+        mimeType: contentType,
+      };
+    }
+
+    const token = randomBytes(24).toString("hex");
+    storeLocalUploadToken(
+      token,
+      claimed._id.toString(),
+      session.user.id,
+      PRESIGN_EXPIRES_SECONDS * 1000,
+    );
+    const uploadUrl = `/api/student/exam-recordings/${claimed._id.toString()}/upload?token=${token}`;
+    examRecLog("PRESIGN_SUCCESS", {
+      attemptId: maskId(parsed.data.attemptId),
+      recordingId: maskId(claimed._id.toString()),
+      storageProvider: "local",
+      mimeType: contentType,
+      expiresInSeconds: PRESIGN_EXPIRES_SECONDS,
+    });
+    op.success({ recordingId: claimed._id.toString(), provider: "local" });
+    return {
+      success: true as const,
+      alreadyReady: false as const,
+      recordingId: claimed._id.toString(),
+      uploadUrl,
+      method: "PUT" as const,
+      headers: { "Content-Type": contentType },
+      expiresInSeconds: PRESIGN_EXPIRES_SECONDS,
+      storageProvider: "local" as const,
+      mimeType: contentType,
+    };
+  } catch (error) {
+    op.fail(error);
+    examRecLog("PRESIGN_FAILED", {
+      error: persistableRecordingError(error, "Could not prepare upload."),
+    });
+    if (error instanceof ActionError) {
+      return { success: false as const, error: persistableRecordingError(error) };
+    }
+    return {
+      success: false as const,
+      error: persistableRecordingError(error, "Could not prepare upload."),
+    };
+  }
+}
+
+/**
+ * Confirm browser→storage upload completed. Marks READY only after the
+ * object exists in storage. Does NOT accept video bytes.
+ */
+export async function confirmExamRecordingUploadAction(raw: unknown) {
+  const op = createServerOp({
+    domain: "EXAM",
+    operation: "RECORDING_CONFIRM",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const session = await requireStudent();
+    op.auth(session.user);
+
+    const parsed = confirmUploadSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { success: false as const, error: "Invalid upload confirmation." };
+    }
+
+    examRecLog("UPLOAD_CONFIRM_STARTED", {
+      attemptId: maskId(parsed.data.attemptId),
+      recordingId: maskId(parsed.data.recordingId),
+      fileSizeBytes: parsed.data.fileSizeBytes,
+      durationSeconds: parsed.data.durationSeconds,
+    });
+
+    await connectDB();
+    const attempt = await getOwnedAttempt(
+      parsed.data.attemptId,
+      session.user.id,
+    );
+
+    const recording = await ExamRecording.findById(parsed.data.recordingId);
+    if (!recording || recording.attemptId.toString() !== attempt._id.toString()) {
+      throw new ActionError("Recording not found.");
+    }
+    if (recording.userId.toString() !== session.user.id) {
+      throw new ActionError("Unauthorized");
+    }
+
+    if (recording.status === "READY" && recording.fileSizeBytes > 0) {
+      examRecLog("UPLOAD_CONFIRM_SUCCESS", {
+        recordingId: maskId(recording._id.toString()),
+        status: "READY",
+        alreadyReady: true,
+        fileSizeBytes: recording.fileSizeBytes,
+      });
+      return {
+        success: true as const,
+        recordingId: recording._id.toString(),
         status: "READY" as const,
       };
-    } catch (uploadError) {
-      const message = persistableRecordingError(uploadError);
-      claimed.status = "FAILED";
-      claimed.endedAt = claimed.endedAt || new Date();
-      claimed.errorMessage = message;
-      await claimed.save();
-      recLog([
-        "Upload failed",
-        `attemptId=${maskId(parsed.data.attemptId)}`,
-        `error=${message}`,
-      ]);
+    }
+
+    if (!["UPLOADING", "FAILED", "RECORDING"].includes(recording.status)) {
+      throw new ActionError("Recording is not awaiting upload confirmation.");
+    }
+
+    const storage = await getStorageProvider();
+    const head = storage.headObject
+      ? await storage.headObject(recording.storageKey)
+      : null;
+
+    if (!head || head.contentLength <= 0) {
+      examRecLog("UPLOAD_CONFIRM_FAILED", {
+        recordingId: maskId(recording._id.toString()),
+        reason: "object_missing",
+      });
+      recording.status = "FAILED";
+      recording.endedAt = recording.endedAt || new Date();
+      recording.errorMessage = "Recording object was not found in storage.";
+      await recording.save();
       return {
         success: false as const,
-        error: message,
+        error: "Recording upload could not be verified in storage.",
         status: "FAILED" as const,
       };
     }
+
+    const fileSizeBytes = Math.max(parsed.data.fileSizeBytes, head.contentLength);
+    recording.fileSizeBytes = fileSizeBytes;
+    recording.durationSeconds = parsed.data.durationSeconds;
+    recording.endedAt = recording.endedAt || new Date();
+    recording.status = "READY";
+    recording.errorMessage = "";
+    await recording.save();
+
+    examRecLog("UPLOAD_CONFIRM_SUCCESS", {
+      recordingId: maskId(recording._id.toString()),
+      status: "READY",
+      fileSizeBytes,
+      durationSeconds: parsed.data.durationSeconds,
+      mimeType: recording.mimeType,
+    });
+    recLog([
+      "Upload confirmed",
+      `attemptId=${maskId(parsed.data.attemptId)}`,
+      `recordingId=${maskId(recording._id.toString())}`,
+      `bytes=${fileSizeBytes}`,
+    ]);
+    op.success({ recordingId: recording._id.toString(), status: "READY" });
+    return {
+      success: true as const,
+      recordingId: recording._id.toString(),
+      status: "READY" as const,
+    };
   } catch (error) {
     op.fail(error);
+    examRecLog("UPLOAD_CONFIRM_FAILED", {
+      error: persistableRecordingError(error),
+    });
     if (error instanceof ActionError) {
       return { success: false as const, error: persistableRecordingError(error) };
     }
@@ -348,6 +501,19 @@ export async function uploadExamRecordingAction(formData: FormData) {
       error: persistableRecordingError(error),
     };
   }
+}
+
+/**
+ * @deprecated Exam client uploads via getExamRecordingUploadUrlAction +
+ * confirmExamRecordingUploadAction (direct browser→S3). Kept temporarily
+ * for backwards compatibility; do not use for new exam recording uploads.
+ */
+export async function uploadExamRecordingAction(_formData: FormData) {
+  return {
+    success: false as const,
+    error:
+      "Direct server upload is disabled. Use the presigned upload flow instead.",
+  };
 }
 
 export async function markExamRecordingFailedAction(raw: unknown) {
@@ -367,6 +533,8 @@ export async function markExamRecordingFailedAction(raw: unknown) {
           _id: data.recordingId,
           attemptId: attempt._id,
           userId: session.user.id,
+          // Never overwrite a successfully uploaded recording.
+          status: { $ne: "READY" },
         },
         {
           $set: {

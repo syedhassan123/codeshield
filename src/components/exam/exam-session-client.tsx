@@ -410,6 +410,7 @@ export function ExamSessionClient({
         setSubmitPhase("Submitting exam…");
         setSecurityEnabled(false);
 
+        console.log("[EXAM-RECORDING] EXAM_SUBMIT_STARTED");
         const result = await submitExamAction(attempt.id);
         if ("error" in result && result.error) {
           setError(result.error);

@@ -15,6 +15,14 @@ export type StorageProvider = {
   putObject: (input: PutObjectInput) => Promise<{ key: string }>;
   /** Returns a time-limited URL the browser can use to play/download. */
   getSignedReadUrl: (key: string, expiresInSeconds?: number) => Promise<string>;
+  /** Time-limited PUT URL for direct browser uploads (S3 only). */
+  getSignedPutUrl?: (
+    key: string,
+    contentType: string,
+    expiresInSeconds?: number,
+  ) => Promise<string>;
+  /** Returns object size when present, else null. */
+  headObject?: (key: string) => Promise<{ contentLength: number } | null>;
 };
 
 function recordingsRoot() {
@@ -40,13 +48,26 @@ function createLocalProvider(): StorageProvider {
       await access(full);
       return key;
     },
+    async headObject(key: string) {
+      try {
+        const { stat } = await import("fs/promises");
+        const full = path.join(recordingsRoot(), key);
+        const info = await stat(full);
+        return { contentLength: info.size };
+      } catch {
+        return null;
+      }
+    },
   };
 }
 
 async function createS3Provider(): Promise<StorageProvider> {
-  const { S3Client, PutObjectCommand, GetObjectCommand } = await import(
-    "@aws-sdk/client-s3"
-  );
+  const {
+    S3Client,
+    PutObjectCommand,
+    GetObjectCommand,
+    HeadObjectCommand,
+  } = await import("@aws-sdk/client-s3");
   const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
 
   const bucket = process.env.S3_BUCKET;
@@ -84,6 +105,27 @@ async function createS3Provider(): Promise<StorageProvider> {
         new GetObjectCommand({ Bucket: bucket, Key: key }),
         { expiresIn: expiresInSeconds },
       );
+    },
+    async getSignedPutUrl(key, contentType, expiresInSeconds = 600) {
+      return getSignedUrl(
+        client,
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          ContentType: contentType,
+        }),
+        { expiresIn: expiresInSeconds },
+      );
+    },
+    async headObject(key: string) {
+      try {
+        const result = await client.send(
+          new HeadObjectCommand({ Bucket: bucket, Key: key }),
+        );
+        return { contentLength: Number(result.ContentLength ?? 0) };
+      } catch {
+        return null;
+      }
     },
   };
 }
