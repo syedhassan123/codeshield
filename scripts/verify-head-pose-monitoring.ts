@@ -69,8 +69,8 @@ async function main() {
     MIN_SIGNIFICANT_HEAD_ANGLE_DEG === 25,
     "min significant angle 25 deg",
   );
-  assert(HEAD_WARNING_THRESHOLD_MS === 20_000, "warning threshold 20s");
-  assert(HEAD_PROLONGED_THRESHOLD_MS === 30_000, "prolonged threshold 30s");
+  assert(HEAD_WARNING_THRESHOLD_MS === 10_000, "warning threshold 10s");
+  assert(HEAD_PROLONGED_THRESHOLD_MS === 20_000, "prolonged threshold 20s");
   assert(HEAD_REPEATED_EPISODE_COUNT === 3, "repeated episode count 3");
   assert(HEAD_REPEATED_WINDOW_MS === 300_000, "repeated window 5 min");
   assert(HEAD_EVENT_DEDUP_MS === 5000, "server dedup 5s");

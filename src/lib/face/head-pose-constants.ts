@@ -2,10 +2,10 @@
 export const MIN_SIGNIFICANT_HEAD_ANGLE_DEG = 25;
 
 /** Soft warning + first observation after sustained looking away (ms). */
-export const HEAD_WARNING_THRESHOLD_MS = 20_000;
+export const HEAD_WARNING_THRESHOLD_MS = 10_000;
 
 /** Higher-priority prolonged observation threshold (ms). */
-export const HEAD_PROLONGED_THRESHOLD_MS = 30_000;
+export const HEAD_PROLONGED_THRESHOLD_MS = 20_000;
 
 /** Qualifying episodes within window before repeated observation. */
 export const HEAD_REPEATED_EPISODE_COUNT = 3;
