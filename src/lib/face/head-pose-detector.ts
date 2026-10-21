@@ -2,6 +2,8 @@
 
 import type { FaceLandmarker as MpFaceLandmarker } from "@mediapipe/tasks-vision";
 import { FACE_DETECTOR_WASM_CDN } from "@/lib/face/constants";
+import { estimateEyeGaze } from "@/lib/face/eye-gaze-estimator";
+import { EYE_GAZE_EXPECTED_LANDMARK_COUNT } from "@/lib/face/eye-gaze-constants";
 import { FACE_LANDMARKER_MODEL_URL } from "@/lib/face/head-pose-constants";
 import {
   classifyHeadOrientation,
@@ -9,12 +11,18 @@ import {
   type HeadOrientation,
   type HeadPoseAngles,
 } from "@/lib/face/head-pose-orientation";
+import type { EyeGazeEstimate } from "@/types/eye-gaze";
 
 export type HeadPoseSample = {
   orientation: HeadOrientation;
   angles: HeadPoseAngles | null;
   faceCount: number;
+  /** Same-frame geometric eye-gaze estimate (telemetry only). */
+  eyeGaze: EyeGazeEstimate | null;
+  landmarkCount: number;
 };
+
+let landmarkCountLogged = false;
 
 let landmarkerPromise: Promise<MpFaceLandmarker> | null = null;
 
@@ -54,7 +62,27 @@ export function sampleHeadPoseFromVideo(
   const faceCount = result.faceLandmarks.length;
 
   if (faceCount !== 1) {
-    return { orientation: "NORMAL", angles: null, faceCount };
+    return {
+      orientation: "NORMAL",
+      angles: null,
+      faceCount,
+      eyeGaze: null,
+      landmarkCount: 0,
+    };
+  }
+
+  const landmarks = result.faceLandmarks[0] ?? [];
+  const landmarkCount = landmarks.length;
+
+  if (
+    process.env.NODE_ENV === "development" &&
+    !landmarkCountLogged &&
+    landmarkCount > 0
+  ) {
+    landmarkCountLogged = true;
+    console.log(
+      `[EYE-GAZE] landmarkCount expected=${EYE_GAZE_EXPECTED_LANDMARK_COUNT} actual=${landmarkCount}`,
+    );
   }
 
   const matrix = result.facialTransformationMatrixes?.[0];
@@ -67,7 +95,13 @@ export function sampleHeadPoseFromVideo(
       : null;
   const orientation = angles ? classifyHeadOrientation(angles) : "NORMAL";
 
-  return { orientation, angles, faceCount };
+  const eyeGaze = estimateEyeGaze({
+    landmarks,
+    headYaw: angles?.yaw ?? null,
+    headPitch: angles?.pitch ?? null,
+  });
+
+  return { orientation, angles, faceCount, eyeGaze, landmarkCount };
 }
 
 export async function releaseFaceLandmarker() {

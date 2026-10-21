@@ -14,9 +14,11 @@ import {
 } from "@/lib/actions/exam";
 import { ExamCodingPanel } from "@/components/exam/exam-coding-panel";
 import { ExamSecurityBanner } from "@/components/exam/exam-security-banner";
+import { EyeGazeDebugPanel } from "@/components/exam/eye-gaze-debug-panel";
 import { ProctoringHeadWarningOverlay } from "@/components/exam/proctoring-head-warning-overlay";
 import { useExamRecording } from "@/hooks/use-exam-recording";
 import { useExamSecurity } from "@/hooks/use-exam-security";
+import { useEyeGazeMonitoring } from "@/hooks/use-eye-gaze-monitoring";
 import { useFaceDetection } from "@/hooks/use-face-detection";
 import { useHeadPoseMonitoring } from "@/hooks/use-head-pose-monitoring";
 import { useProctoringHeadWarningUx } from "@/hooks/use-proctoring-head-warning-ux";
@@ -179,6 +181,7 @@ export function ExamSessionClient({
     warning: headWarning,
     warningTier: headWarningTier,
     error: headError,
+    eyeGazeEstimate,
   } = useHeadPoseMonitoring({
     attemptId: attempt.id,
     enabled:
@@ -188,6 +191,14 @@ export function ExamSessionClient({
     videoRef,
     cameraActive,
     faceCount,
+  });
+
+  const { telemetry: eyeGazeTelemetry } = useEyeGazeMonitoring({
+    enabled:
+      security.requireHeadMonitoring &&
+      securityEnabled &&
+      attempt.status === "in_progress",
+    estimate: eyeGazeEstimate,
   });
 
   const headWarningUx = useProctoringHeadWarningUx({
@@ -543,6 +554,11 @@ export function ExamSessionClient({
         support={headWarningUx.support}
         level={headWarningUx.level}
       />
+
+      {process.env.NODE_ENV !== "production" &&
+        security.requireHeadMonitoring && (
+          <EyeGazeDebugPanel telemetry={eyeGazeTelemetry} />
+        )}
 
       {security.requireCamera && (
         <div className="relative z-20 max-w-6xl mx-auto px-4 pt-2">

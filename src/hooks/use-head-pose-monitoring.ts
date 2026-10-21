@@ -32,6 +32,7 @@ import {
   getHeadPoseSimulationMode,
   simulationToOrientation,
 } from "@/lib/face/head-pose-simulation";
+import type { EyeGazeEstimate } from "@/types/eye-gaze";
 
 export type HeadMonitoringStatus =
   | "inactive"
@@ -73,6 +74,10 @@ export function useHeadPoseMonitoring({
   const [warningTier, setWarningTier] = useState<0 | 1 | 2>(0);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [error, setError] = useState("");
+  /** Same-frame raw eye-gaze estimate — telemetry only; does not affect warnings. */
+  const [eyeGazeEstimate, setEyeGazeEstimate] = useState<EyeGazeEstimate | null>(
+    null,
+  );
 
   const enabledRef = useRef(enabled);
   const cameraActiveRef = useRef(cameraActive);
@@ -179,6 +184,7 @@ export function useHeadPoseMonitoring({
         headLog("Episode ended", { durationMs, reason });
         resetEpisode();
       }
+      setEyeGazeEstimate(null);
       updateStatus("paused");
       if (orientationRef.current !== "NORMAL") {
         updateOrientation("NORMAL");
@@ -239,11 +245,13 @@ export function useHeadPoseMonitoring({
     let angles: { yaw: number; pitch: number; roll: number } | null = null;
     let sampleFaceCount = faceCountRef.current;
     let matrixPresent = usingSimulation;
+    let frameEyeGaze: EyeGazeEstimate | null = null;
 
     if (simMode) {
       const sim = simulationToOrientation(simMode);
       if (sim === "NO_FACE" || sim === "MULTIPLE_FACES") {
         pauseMonitoring(sim === "NO_FACE" ? "sim_no_face" : "sim_multiple_faces");
+        setEyeGazeEstimate(null);
         return;
       }
       sampleOrientation = sim;
@@ -253,6 +261,8 @@ export function useHeadPoseMonitoring({
         roll: 0,
       };
       sampleFaceCount = 1;
+      // Simulation bypasses Landmarker landmarks — no gaze estimate.
+      frameEyeGaze = null;
     } else {
       const sample = sampleHeadPoseFromVideo(
         landmarkerRef.current,
@@ -263,15 +273,20 @@ export function useHeadPoseMonitoring({
 
       sampleFaceCount = sample.faceCount;
       matrixPresent = sample.angles != null;
+      frameEyeGaze = sample.eyeGaze;
 
       if (sampleFaceCount !== 1) {
         pauseMonitoring("landmarker_face_count");
+        setEyeGazeEstimate(null);
         return;
       }
 
       sampleOrientation = sample.orientation;
       angles = sample.angles;
     }
+
+    // Gaze telemetry is independent of head episode / warning state.
+    setEyeGazeEstimate(frameEyeGaze);
 
     const now = Date.now();
     const awayDurationMs =
@@ -295,6 +310,7 @@ export function useHeadPoseMonitoring({
       warningTriggered: headEventLoggedRef.current,
       prolongedTriggered: prolongedLoggedRef.current,
       simulation: usingSimulation ? simMode : "off",
+      eyeGaze: frameEyeGaze?.direction ?? "n/a",
     });
 
     updateOrientation(sampleOrientation);
@@ -385,6 +401,7 @@ export function useHeadPoseMonitoring({
     setWarning("");
     setWarningTier(0);
     setError("");
+    setEyeGazeEstimate(null);
     episodeStartRef.current = null;
     episodeDirectionRef.current = null;
     headEventLoggedRef.current = false;
@@ -460,5 +477,7 @@ export function useHeadPoseMonitoring({
     warning,
     warningTier,
     error,
+    /** Raw per-frame eye-gaze estimate from the same Landmarker call (no warnings). */
+    eyeGazeEstimate,
   };
 }
