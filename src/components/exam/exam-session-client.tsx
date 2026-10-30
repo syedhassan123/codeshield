@@ -193,16 +193,13 @@ export function ExamSessionClient({
     faceCount,
   });
 
-  const { telemetry: eyeGazeTelemetry, warning: eyeGazeWarning } =
-    useEyeGazeMonitoring({
-      enabled:
-        security.requireHeadMonitoring &&
-        securityEnabled &&
-        attempt.status === "in_progress",
-      estimate: eyeGazeEstimate,
-      attemptId: attempt.id,
-      headOrientation,
-    });
+  const { telemetry: eyeGazeTelemetry } = useEyeGazeMonitoring({
+    enabled:
+      security.requireHeadMonitoring &&
+      securityEnabled &&
+      attempt.status === "in_progress",
+    estimate: eyeGazeEstimate,
+  });
 
   const headWarningUx = useProctoringHeadWarningUx({
     enabled:
@@ -214,9 +211,6 @@ export function ExamSessionClient({
     headWarning,
     warningTier: headWarningTier,
     blockedByHigherPriority: Boolean(warning),
-    eyeWarning: eyeGazeWarning.active,
-    eyeWarningTier: eyeGazeWarning.tier,
-    eyeDirection: eyeGazeWarning.direction,
   });
 
   useEffect(() => {
@@ -563,15 +557,7 @@ export function ExamSessionClient({
 
       {process.env.NODE_ENV !== "production" &&
         security.requireHeadMonitoring && (
-          <EyeGazeDebugPanel
-            telemetry={eyeGazeTelemetry}
-            warningTier={eyeGazeWarning.tier}
-            warningDurationMs={eyeGazeWarning.durationMs}
-            eyeAway={eyeGazeWarning.away}
-            headWarningTier={headWarningTier}
-            headOrientation={headOrientation}
-            headStatus={headStatus}
-          />
+          <EyeGazeDebugPanel telemetry={eyeGazeTelemetry} />
         )}
 
       {security.requireCamera && (

@@ -8,9 +8,7 @@ import { createServerOp, debugLog, isVerboseDebugEnabled, maskId } from "@/lib/d
 import {
   buildSecuritySummary,
   FACE_EVENT_DEDUP_MS,
-  EYE_GAZE_EVENT_DEDUP_MS,
   HEAD_EVENT_DEDUP_MS,
-  isEyeGazeObservationEvent,
   isFaceObservationEvent,
   isHeadObservationEvent,
   isLeaveSecurityEvent,
@@ -141,26 +139,6 @@ export async function recordExamSecurityEventAction(raw: unknown) {
 
     if (isHeadObservationEvent(eventType)) {
       const since = new Date(Date.now() - HEAD_EVENT_DEDUP_MS);
-      const recentSame = await SecurityEvent.findOne({
-        attemptId: live._id,
-        eventType,
-        timestamp: { $gte: since },
-      })
-        .sort({ timestamp: -1 })
-        .lean();
-
-      if (recentSame) {
-        securityLog(eventType, attemptId, "DEDUPED");
-        debugLog("EXAM", "SECURITY_EVENT_DEDUPED", {
-          eventType,
-          attemptId: maskId(attemptId),
-        });
-        return { success: true as const, deduped: true as const };
-      }
-    }
-
-    if (isEyeGazeObservationEvent(eventType)) {
-      const since = new Date(Date.now() - EYE_GAZE_EVENT_DEDUP_MS);
       const recentSame = await SecurityEvent.findOne({
         attemptId: live._id,
         eventType,

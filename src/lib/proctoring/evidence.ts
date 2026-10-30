@@ -30,8 +30,6 @@ const EVENT_LABELS: Record<string, string> = {
   PROLONGED_LOOKING_AWAY: "Prolonged looking away",
   REPEATED_LOOKING_AWAY: "Repeated looking away",
   HEAD_MONITORING_UNAVAILABLE: "Head monitoring unavailable",
-  EYE_GAZE_AWAY: "Eyes looking away",
-  EYE_GAZE_AWAY_PROLONGED: "Prolonged eyes looking away",
 };
 
 const VISION_EVENTS = new Set([
@@ -46,8 +44,6 @@ const VISION_EVENTS = new Set([
   "PROLONGED_LOOKING_AWAY",
   "REPEATED_LOOKING_AWAY",
   "HEAD_MONITORING_UNAVAILABLE",
-  "EYE_GAZE_AWAY",
-  "EYE_GAZE_AWAY_PROLONGED",
 ]);
 
 const BROWSER_EVENTS = new Set([
