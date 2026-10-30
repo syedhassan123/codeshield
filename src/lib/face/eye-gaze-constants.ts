@@ -58,3 +58,18 @@ export const EYE_GAZE_SMOOTH_MIN_AGREEMENT = 3;
 
 /** Minimum landmark visibility when the field is present. */
 export const EYE_GAZE_MIN_VISIBILITY = 0.4;
+
+/**
+ * First eye-gaze warning after a sustained stable away episode (ms).
+ * Independent of head-pose HEAD_WARNING_THRESHOLD_MS.
+ */
+export const EYE_GAZE_WARNING_THRESHOLD_MS = 5_000;
+
+/**
+ * Prolonged eye-gaze warning after a sustained stable away episode (ms).
+ * Independent of head-pose HEAD_PROLONGED_THRESHOLD_MS.
+ */
+export const EYE_GAZE_PROLONGED_THRESHOLD_MS = 10_000;
+
+/** Client cooldown between persisted eye-gaze observation events (ms). */
+export const EYE_GAZE_EVENT_COOLDOWN_MS = 5_000;

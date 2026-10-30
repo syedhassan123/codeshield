@@ -6,20 +6,37 @@ import {
   EYE_GAZE_HORIZONTAL_CENTER_MAX,
   EYE_GAZE_HORIZONTAL_CENTER_MIN,
   EYE_GAZE_MIN_CONFIDENCE,
+  EYE_GAZE_PROLONGED_THRESHOLD_MS,
   EYE_GAZE_SMOOTH_MIN_AGREEMENT,
   EYE_GAZE_SMOOTH_WINDOW,
+  EYE_GAZE_WARNING_THRESHOLD_MS,
 } from "@/lib/face/eye-gaze-constants";
+import { fuseHeadEyeAttention } from "@/lib/proctoring/head-eye-fusion";
 import type { EyeGazeTelemetry } from "@/types/eye-gaze";
 
 type Props = {
   telemetry: EyeGazeTelemetry;
+  warningTier?: 0 | 1 | 2;
+  warningDurationMs?: number;
+  eyeAway?: boolean;
+  headWarningTier?: 0 | 1 | 2;
+  headOrientation?: string;
+  headStatus?: string;
 };
 
 /**
  * Development-only eye-gaze telemetry panel for Phase D calibration.
  * Never shown in production builds.
  */
-export function EyeGazeDebugPanel({ telemetry }: Props) {
+export function EyeGazeDebugPanel({
+  telemetry,
+  warningTier = 0,
+  warningDurationMs = 0,
+  eyeAway = false,
+  headWarningTier = 0,
+  headOrientation = "NORMAL",
+  headStatus = "active",
+}: Props) {
   if (process.env.NODE_ENV === "production") return null;
 
   const fmt = (n: number | null | undefined, digits = 3) =>
@@ -28,6 +45,16 @@ export function EyeGazeDebugPanel({ telemetry }: Props) {
   const confPct = Math.round(Math.min(1, Math.max(0, telemetry.confidence)) * 100);
   const landmarkOk =
     telemetry.landmarkCount === EYE_GAZE_EXPECTED_LANDMARK_COUNT;
+  const fusion = fuseHeadEyeAttention({
+    headStatus,
+    headOrientation,
+    headWarning: headWarningTier >= 1,
+    headWarningTier,
+    stableEyeDirection: telemetry.stableDirection,
+    eyeAway,
+    eyeWarningTier: warningTier,
+    eyeConfidence: telemetry.confidence,
+  });
 
   return (
     <div
@@ -55,6 +82,16 @@ export function EyeGazeDebugPanel({ telemetry }: Props) {
         </dd>
         <dt className="text-muted-foreground">durationMs</dt>
         <dd>{telemetry.durationMs}</dd>
+        <dt className="text-muted-foreground">eyeWarnMs</dt>
+        <dd>{warningDurationMs}</dd>
+        <dt className="text-muted-foreground">eyeTier</dt>
+        <dd>{warningTier}</dd>
+        <dt className="text-muted-foreground">fusion</dt>
+        <dd className="truncate">{fusion.combinedAttentionState}</dd>
+        <dt className="text-muted-foreground">overlay</dt>
+        <dd>
+          {fusion.warningSource}/{fusion.warningTier}
+        </dd>
         <dt className="text-muted-foreground">landmarks</dt>
         <dd className={landmarkOk ? "text-success" : "text-danger"}>
           {telemetry.landmarkCount || "—"}
@@ -90,7 +127,9 @@ export function EyeGazeDebugPanel({ telemetry }: Props) {
         {EYE_GAZE_HORIZONTAL_CENTER_MAX.toFixed(2)} · DOWN ≥{" "}
         {EYE_GAZE_DOWN_THRESHOLD.toFixed(2)} · minConf{" "}
         {EYE_GAZE_MIN_CONFIDENCE.toFixed(2)} · smooth{" "}
-        {EYE_GAZE_SMOOTH_WINDOW}/{EYE_GAZE_SMOOTH_MIN_AGREEMENT}
+        {EYE_GAZE_SMOOTH_WINDOW}/{EYE_GAZE_SMOOTH_MIN_AGREEMENT} · warn{" "}
+        {EYE_GAZE_WARNING_THRESHOLD_MS / 1000}s/
+        {EYE_GAZE_PROLONGED_THRESHOLD_MS / 1000}s
       </p>
       <p className="mt-1 text-[9px] text-muted-foreground">
         window.__codeshieldEyeGaze.summary()
