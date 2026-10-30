@@ -255,23 +255,25 @@ function main() {
   );
   assert(
     !examSrc.includes("GAZE_LEFT") && !examSrc.includes("GAZE_RIGHT"),
-    "exam session has no gaze SecurityEvent type strings",
+    "exam session has no legacy GAZE_LEFT/GAZE_RIGHT event names",
   );
 
   const actionSrc = read("src/lib/actions/exam-security.ts");
   assert(
-    !actionSrc.includes("GAZE_LEFT") && !actionSrc.includes("EYE_GAZE"),
-    "no gaze SecurityEvent types in exam-security action",
+    !actionSrc.includes("GAZE_LEFT") && actionSrc.includes("isEyeGazeObservationEvent"),
+    "exam-security action uses dedicated eye-gaze observation dedup",
   );
 
   const hookSrc = read("src/hooks/use-eye-gaze-monitoring.ts");
   assert(
-    !hookSrc.includes("recordExamSecurityEventAction"),
-    "eye-gaze hook does not persist security events",
+    hookSrc.includes("recordExamSecurityEventAction") &&
+      hookSrc.includes("EYE_GAZE_AWAY") &&
+      hookSrc.includes("warningLoggedRef"),
+    "eye-gaze hook persists only threshold-crossing events",
   );
   assert(
-    !hookSrc.includes("setWarning") && !hookSrc.includes("ProctoringHead"),
-    "eye-gaze hook does not drive head warning UI",
+    !hookSrc.includes("ProctoringHeadWarningOverlay"),
+    "eye-gaze hook does not render the overlay",
   );
 
   const calibSrc = read("src/lib/face/eye-gaze-calibration.ts");

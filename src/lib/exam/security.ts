@@ -34,10 +34,12 @@ export function severityForEventType(
     case "HEAD_LOOKING_RIGHT":
     case "HEAD_LOOKING_UP":
     case "HEAD_LOOKING_DOWN":
+    case "EYE_GAZE_AWAY":
       return "MEDIUM";
     case "MULTIPLE_FACES_DETECTED":
     case "PROLONGED_LOOKING_AWAY":
     case "REPEATED_LOOKING_AWAY":
+    case "EYE_GAZE_AWAY_PROLONGED":
       return "HIGH";
     case "COPY_ATTEMPT":
     case "PASTE_ATTEMPT":
@@ -95,6 +97,8 @@ export type SecurityEventCounts = {
   PROLONGED_LOOKING_AWAY: number;
   REPEATED_LOOKING_AWAY: number;
   HEAD_MONITORING_UNAVAILABLE: number;
+  EYE_GAZE_AWAY: number;
+  EYE_GAZE_AWAY_PROLONGED: number;
 };
 
 export type SecuritySummary = {
@@ -132,6 +136,8 @@ export function buildSecuritySummary(
     PROLONGED_LOOKING_AWAY: 0,
     REPEATED_LOOKING_AWAY: 0,
     HEAD_MONITORING_UNAVAILABLE: 0,
+    EYE_GAZE_AWAY: 0,
+    EYE_GAZE_AWAY_PROLONGED: 0,
   };
 
   for (const event of events) {
@@ -156,6 +162,8 @@ export const SECURITY_LEAVE_DEDUP_MS = 2000;
 export const FACE_EVENT_DEDUP_MS = 5000;
 /** Head observation dedup window (ms). */
 export const HEAD_EVENT_DEDUP_MS = 5000;
+/** Eye-gaze observation dedup window (ms). */
+export const EYE_GAZE_EVENT_DEDUP_MS = 5000;
 /** Clipboard keydown + clipboard-event dedup window (ms). */
 export const SECURITY_CLIPBOARD_DEDUP_MS = 500;
 
@@ -173,5 +181,11 @@ export function isHeadObservationEvent(eventType: SecurityEventType) {
     eventType === "HEAD_LOOKING_DOWN" ||
     eventType === "PROLONGED_LOOKING_AWAY" ||
     eventType === "REPEATED_LOOKING_AWAY"
+  );
+}
+
+export function isEyeGazeObservationEvent(eventType: SecurityEventType) {
+  return (
+    eventType === "EYE_GAZE_AWAY" || eventType === "EYE_GAZE_AWAY_PROLONGED"
   );
 }

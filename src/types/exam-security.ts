@@ -24,6 +24,8 @@ export const SECURITY_EVENT_TYPES = [
   "PROLONGED_LOOKING_AWAY",
   "REPEATED_LOOKING_AWAY",
   "HEAD_MONITORING_UNAVAILABLE",
+  "EYE_GAZE_AWAY",
+  "EYE_GAZE_AWAY_PROLONGED",
 ] as const;
 
 export type SecurityEventType = (typeof SECURITY_EVENT_TYPES)[number];
@@ -62,6 +64,8 @@ export const SECURITY_VIOLATION_EVENT_TYPES = [
   "HEAD_LOOKING_DOWN",
   "PROLONGED_LOOKING_AWAY",
   "REPEATED_LOOKING_AWAY",
+  "EYE_GAZE_AWAY",
+  "EYE_GAZE_AWAY_PROLONGED",
 ] as const;
 
 /** Face monitoring lifecycle / recovery (not counted as violations). */
