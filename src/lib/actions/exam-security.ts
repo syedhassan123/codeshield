@@ -14,6 +14,7 @@ import {
   isFaceObservationEvent,
   isHeadObservationEvent,
   isLeaveSecurityEvent,
+  sanitizeSecurityEventMetadata,
   SECURITY_LEAVE_DEDUP_MS,
   severityForEventType,
 } from "@/lib/exam/security";
@@ -180,17 +181,7 @@ export async function recordExamSecurityEventAction(raw: unknown) {
     }
 
     const severity = severityForEventType(eventType);
-    const safeMeta =
-      metadata && typeof metadata === "object"
-        ? Object.fromEntries(
-            Object.entries(metadata).filter(
-              ([k]) =>
-                !/pass(word)?|token|secret|cookie|auth|mongo|smtp|api[_-]?key/i.test(
-                  k,
-                ),
-            ),
-          )
-        : {};
+    const safeMeta = sanitizeSecurityEventMetadata(metadata);
 
     await SecurityEvent.create({
       attemptId: live._id,
@@ -257,6 +248,7 @@ export async function getAttemptSecurityReportAction(attemptId: string) {
 
     const events = await SecurityEvent.find({ attemptId: attempt._id })
       .sort({ timestamp: 1 })
+      .limit(1000)
       .lean();
 
     const serialized: SerializedSecurityEvent[] = events.map((e) => ({

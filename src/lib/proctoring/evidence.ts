@@ -147,6 +147,7 @@ export const INFO_EVENT_TYPES = new Set([
   "RECORDING_STOPPED",
   "FACE_DETECTION_UNAVAILABLE",
   "HEAD_MONITORING_UNAVAILABLE",
+  "RECORDING_UPLOAD_FAILED",
 ]);
 
 export function buildEvidenceTimeline(

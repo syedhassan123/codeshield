@@ -73,6 +73,7 @@ AttemptSchema.index(
   },
 );
 AttemptSchema.index({ expiresAt: 1, status: 1 });
+AttemptSchema.index({ status: 1, submittedAt: -1 });
 
 export type AttemptDocument = InferSchemaType<typeof AttemptSchema> & {
   _id: mongoose.Types.ObjectId;

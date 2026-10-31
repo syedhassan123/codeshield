@@ -16,9 +16,27 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from "../src/lib/notifications/queries";
-import { notifyInterviewScheduled } from "../src/lib/notifications/events";
+import { safeNotificationPath } from "../src/lib/notifications/create";
+import {
+  assessmentReminderDedupeKey,
+  interviewReminderDedupeKey,
+  interviewScheduleChanged,
+  newlyAssignedStudentIds,
+  notifyAssessmentAssigned,
+  notifyInterviewCancelled,
+  notifyInterviewRescheduled,
+  notifyInterviewScheduled,
+} from "../src/lib/notifications/events";
+import {
+  ASSESSMENT_REMINDER_LEAD_MS,
+  INTERVIEW_REMINDER_LEAD_MS,
+  isDueForReminder,
+  processDueReminders,
+} from "../src/lib/notifications/reminders";
 import { Assessment } from "../src/models/Assessment";
+import { Attempt } from "../src/models/Attempt";
 import { Certificate } from "../src/models/Certificate";
+import { Interview } from "../src/models/Interview";
 import { Notification } from "../src/models/Notification";
 import { Result } from "../src/models/Result";
 import { User } from "../src/models/User";
@@ -105,6 +123,148 @@ function staticChecks() {
     interviewSrc.includes("notifyInterviewScheduled"),
     "scheduling an interview notifies both the candidate and the interviewer",
   );
+  assert(
+    interviewSrc.indexOf("await notifyInterviewRescheduled") >
+      interviewSrc.indexOf("Unable to update interview"),
+    "reschedule notification is created only after the interview update succeeds",
+  );
+  assert(
+    interviewSrc.indexOf("await notifyInterviewCancelled") >
+      interviewSrc.indexOf("Unable to cancel interview"),
+    "cancel notification is created only after the interview cancel succeeds",
+  );
+
+  const assessmentSrc = read("src/lib/actions/assessments.ts");
+  const createSrc = assessmentSrc.slice(
+    assessmentSrc.indexOf("export async function createAssessmentAction"),
+    assessmentSrc.indexOf("export async function updateAssessmentAction"),
+  );
+  const updateSrc = assessmentSrc.slice(
+    assessmentSrc.indexOf("export async function updateAssessmentAction"),
+  );
+  assert(
+    createSrc.indexOf("await notifyAssessmentAssigned") >
+      createSrc.indexOf("Assessment.create"),
+    "assignment notification follows a successful assessment create",
+  );
+  assert(
+    updateSrc.indexOf("await notifyAssessmentAssigned") >
+      updateSrc.indexOf("doc.save()"),
+    "assignment notification follows a successful assessment update",
+  );
+  assert(
+    updateSrc.includes("newlyAssignedStudentIds"),
+    "assessment updates notify only newly assigned students",
+  );
+
+  assert(model.includes("readAt"), "notifications store readAt");
+  assert(model.includes("dedupeKey"), "notifications store a dedupeKey");
+  assert(
+    model.includes("unique: true") && model.includes("sparse: true"),
+    "dedupeKey is a unique sparse index",
+  );
+  assert(
+    model.includes("INTERVIEW_RESCHEDULED") &&
+      model.includes("INTERVIEW_CANCELLED") &&
+      model.includes("INTERVIEW_REMINDER") &&
+      model.includes("ASSESSMENT_ASSIGNED") &&
+      model.includes("ASSESSMENT_REMINDER"),
+    "interview and assessment notification types are enumerated",
+  );
+  assert(
+    !model.includes("ASSESSMENT_DEADLINE_REMINDER"),
+    "no deadline reminder type is invented without a deadline field",
+  );
+
+  const reminders = read("src/lib/notifications/reminders.ts");
+  assert(
+    reminders.includes('status: "scheduled"'),
+    "interview reminders only select scheduled interviews",
+  );
+  assert(
+    reminders.includes("submitted") && reminders.includes("expired"),
+    "assessment reminders skip students who already finished an attempt",
+  );
+  assert(
+    actions.includes("processDueReminders"),
+    "the notification list sweep processes due reminders",
+  );
+  assert(shell.includes("No notifications yet."), "empty state has no mock notifications");
+  assert(shell.includes("Mark all read"), "mark all read is available in the bell");
+  assert(
+    queries.includes(".sort({ createdAt: -1 })") && queries.includes("LIST_LIMIT = 20"),
+    "notification list is newest-first and limited",
+  );
+  assert(
+    !shell.includes("dangerouslySetInnerHTML"),
+    "notification title and message render as plain text",
+  );
+}
+
+function pureChecks() {
+  assert(safeNotificationPath("/student/interviews") === "/student/interviews", "app-relative links are kept");
+  assert(safeNotificationPath("https://evil.example") === null, "external notification URLs are rejected");
+  assert(safeNotificationPath("//evil.example") === null, "protocol-relative notification URLs are rejected");
+
+  const now = new Date("2026-10-31T12:00:00.000Z");
+  assert(
+    isDueForReminder(new Date(now.getTime() + 20 * 60 * 1000), now, INTERVIEW_REMINDER_LEAD_MS),
+    "interview inside the 30 minute window is due",
+  );
+  assert(
+    !isDueForReminder(new Date(now.getTime() + 3 * 60 * 60 * 1000), now, INTERVIEW_REMINDER_LEAD_MS),
+    "interview outside the reminder window is not due",
+  );
+  assert(
+    isDueForReminder(new Date(now.getTime() + 45 * 60 * 1000), now, ASSESSMENT_REMINDER_LEAD_MS),
+    "assessment inside the 1 hour window is due",
+  );
+  assert(
+    !isDueForReminder(new Date(now.getTime() + 3 * 60 * 60 * 1000), now, ASSESSMENT_REMINDER_LEAD_MS),
+    "assessment outside the reminder window is not due",
+  );
+
+  const scheduledAt = new Date("2026-11-01T09:00:00.000Z");
+  const key = interviewReminderDedupeKey("iv-1", "student-1", scheduledAt);
+  assert(
+    key === interviewReminderDedupeKey("iv-1", "student-1", scheduledAt),
+    "the same interview reminder produces the same dedupe key",
+  );
+  assert(
+    key !== interviewReminderDedupeKey("iv-1", "student-2", scheduledAt),
+    "a different recipient gets a different reminder key",
+  );
+
+  assert(
+    newlyAssignedStudentIds(["a"], ["a", "b"]).join() === "b",
+    "only newly assigned students are selected",
+  );
+  assert(
+    newlyAssignedStudentIds(["a", "b"], ["a", "b"]).length === 0,
+    "saving the same assignment list selects nobody",
+  );
+
+  const previous = {
+    candidateId: "student-a",
+    interviewerId: "interviewer-a",
+    scheduledAt,
+    durationMin: 30,
+  };
+  assert(
+    !interviewScheduleChanged(previous, { ...previous, scheduledAt: new Date(scheduledAt) }),
+    "an identical schedule is not a reschedule",
+  );
+  assert(
+    interviewScheduleChanged(previous, {
+      ...previous,
+      scheduledAt: new Date(scheduledAt.getTime() + 60_000),
+    }),
+    "a new interview time is a reschedule",
+  );
+
+  const seen = new Set<string>();
+  seen.add(key);
+  assert(seen.has(key), "a second reminder insert with the same key is a duplicate");
 }
 
 async function dbChecks() {
@@ -117,6 +277,10 @@ async function dbChecks() {
   assert(rohan && demo && kabir && admin, "seed users exist");
 
   const userIds = [rohan!._id, demo!._id, kabir!._id];
+  const extraInterviewIds: mongoose.Types.ObjectId[] = [];
+  let fixtureAssessmentId: mongoose.Types.ObjectId | null = null;
+  let fixtureAttemptId: mongoose.Types.ObjectId | null = null;
+  let riyaId: mongoose.Types.ObjectId | null = null;
   await Notification.deleteMany({ userId: { $in: userIds } });
 
   const before = await listNotificationsForUser(rohan!._id.toString());
@@ -187,6 +351,10 @@ async function dbChecks() {
       demo!._id.toString(),
     );
     assert(deniedMark === null, "a different user cannot mark someone else's notification read");
+    assert(
+      (await markNotificationRead("not-an-id", rohan!._id.toString())) === null,
+      "a malformed notification id is a safe not-found",
+    );
 
     const stillUnread = await listNotificationsForUser(rohan!._id.toString());
     assert(stillUnread.unreadCount === 2, "cross-user mark-read attempt has no effect");
@@ -225,16 +393,311 @@ async function dbChecks() {
       kabirNotifs.notifications.some((n) => n.type === "INTERVIEW_SCHEDULED"),
       "assigned interviewer receives an INTERVIEW_SCHEDULED notification too",
     );
+
+    const demoOwned = await listNotificationsForUser(demo!._id.toString());
+    assert(
+      !demoOwned.notifications.some((n) => n.type === "CERTIFICATE_ISSUED"),
+      "a student list does not include another student's notifications",
+    );
+
+    const when = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const reschedule = {
+      interviewId: "phase20-reschedule",
+      interviewTitle: "Software Engineer",
+      scheduledAt: when,
+      durationMin: 45,
+      previous: {
+        candidateId: demo!._id.toString(),
+        interviewerId: kabir!._id.toString(),
+      },
+      candidateId: demo!._id.toString(),
+      interviewerId: kabir!._id.toString(),
+    };
+    await notifyInterviewRescheduled(reschedule);
+    await notifyInterviewRescheduled(reschedule);
+    assert(
+      (await Notification.countDocuments({
+        userId: demo!._id,
+        type: "INTERVIEW_RESCHEDULED",
+      })) === 1,
+      "reschedule creates one student notification",
+    );
+    assert(
+      (await Notification.countDocuments({
+        userId: kabir!._id,
+        type: "INTERVIEW_RESCHEDULED",
+      })) === 1,
+      "reschedule creates one interviewer notification",
+    );
+
+    const cancellation = {
+      interviewId: "phase20-cancel",
+      interviewTitle: "Software Engineer",
+      scheduledAt: when,
+      candidateId: demo!._id,
+      interviewerId: kabir!._id,
+    };
+    await notifyInterviewCancelled(cancellation);
+    await notifyInterviewCancelled(cancellation);
+    assert(
+      (await Notification.countDocuments({
+        userId: demo!._id,
+        type: "INTERVIEW_CANCELLED",
+      })) === 1,
+      "cancel creates one student notification",
+    );
+    assert(
+      (await Notification.countDocuments({
+        userId: kabir!._id,
+        type: "INTERVIEW_CANCELLED",
+      })) === 1,
+      "cancel creates one interviewer notification",
+    );
+
+    await notifyAssessmentAssigned({
+      assessmentId: assessment!._id.toString(),
+      assessmentTitle: assessment!.title,
+      studentIds: [demo!._id.toString()],
+    });
+    await notifyAssessmentAssigned({
+      assessmentId: assessment!._id.toString(),
+      assessmentTitle: assessment!.title,
+      studentIds: [demo!._id.toString()],
+    });
+    assert(
+      (await Notification.countDocuments({
+        userId: demo!._id,
+        type: "ASSESSMENT_ASSIGNED",
+      })) === 1,
+      "the assigned student receives one assessment notification",
+    );
+    assert(
+      (await Notification.countDocuments({
+        userId: rohan!._id,
+        type: "ASSESSMENT_ASSIGNED",
+      })) === 0,
+      "an unassigned student receives no assessment notification",
+    );
+
+    const sweepNow = new Date();
+    const due = await Interview.create({
+      candidateId: demo!._id,
+      interviewerId: kabir!._id,
+      createdBy: admin!._id,
+      title: "Phase 20 due reminder",
+      type: "Technical",
+      scheduledAt: new Date(sweepNow.getTime() + 20 * 60 * 1000),
+      durationMin: 30,
+      status: "scheduled",
+    });
+    const outside = await Interview.create({
+      candidateId: demo!._id,
+      interviewerId: kabir!._id,
+      createdBy: admin!._id,
+      title: "Phase 20 outside reminder",
+      type: "Technical",
+      scheduledAt: new Date(sweepNow.getTime() + 3 * 60 * 60 * 1000),
+      durationMin: 30,
+      status: "scheduled",
+    });
+    const cancelledInterview = await Interview.create({
+      candidateId: demo!._id,
+      interviewerId: kabir!._id,
+      createdBy: admin!._id,
+      title: "Phase 20 cancelled reminder",
+      type: "Technical",
+      scheduledAt: new Date(sweepNow.getTime() + 10 * 60 * 1000),
+      durationMin: 30,
+      status: "cancelled",
+    });
+    const completedInterview = await Interview.create({
+      candidateId: demo!._id,
+      interviewerId: kabir!._id,
+      createdBy: admin!._id,
+      title: "Phase 20 completed reminder",
+      type: "Technical",
+      scheduledAt: new Date(sweepNow.getTime() + 10 * 60 * 1000),
+      durationMin: 30,
+      status: "completed",
+    });
+    extraInterviewIds.push(
+      due._id,
+      outside._id,
+      cancelledInterview._id,
+      completedInterview._id,
+    );
+
+    const fixture = await Assessment.create({
+      code: `ASM-P20-${Date.now()}`,
+      title: "Phase 20 reminder fixture",
+      type: "mcq",
+      category: "Programming",
+      difficulty: "easy",
+      status: "scheduled",
+      durationMin: 30,
+      totalMarks: 10,
+      visibility: "assigned",
+      assignedStudentIds: [demo!._id, rohan!._id],
+      scheduledAt: new Date(sweepNow.getTime() + 40 * 60 * 1000),
+      createdBy: admin!._id,
+    });
+    fixtureAssessmentId = fixture._id;
+    const finishedAttempt = await Attempt.create({
+      studentId: rohan!._id,
+      assessmentId: fixture._id,
+      status: "submitted",
+      startedAt: sweepNow,
+      expiresAt: new Date(sweepNow.getTime() + 30 * 60 * 1000),
+      durationMin: 30,
+      assessmentTitle: fixture.title,
+      totalMarks: 10,
+      submittedAt: sweepNow,
+    });
+    fixtureAttemptId = finishedAttempt._id;
+
+    await processDueReminders(sweepNow);
+    await processDueReminders(sweepNow);
+
+    assert(
+      (await Notification.countDocuments({
+        dedupeKey: interviewReminderDedupeKey(
+          due._id.toString(),
+          demo!._id.toString(),
+          due.scheduledAt,
+        ),
+      })) === 1,
+      "an upcoming interview creates one student reminder",
+    );
+    assert(
+      (await Notification.countDocuments({
+        dedupeKey: interviewReminderDedupeKey(
+          due._id.toString(),
+          kabir!._id.toString(),
+          due.scheduledAt,
+        ),
+      })) === 1,
+      "an upcoming interview creates one interviewer reminder",
+    );
+    assert(
+      (await Notification.countDocuments({
+        dedupeKey: interviewReminderDedupeKey(
+          outside._id.toString(),
+          demo!._id.toString(),
+          outside.scheduledAt,
+        ),
+      })) === 0,
+      "an interview outside the window is not reminded",
+    );
+    assert(
+      (await Notification.countDocuments({
+        dedupeKey: interviewReminderDedupeKey(
+          cancelledInterview._id.toString(),
+          demo!._id.toString(),
+          cancelledInterview.scheduledAt,
+        ),
+      })) === 0,
+      "a cancelled interview is not reminded",
+    );
+    assert(
+      (await Notification.countDocuments({
+        dedupeKey: interviewReminderDedupeKey(
+          completedInterview._id.toString(),
+          demo!._id.toString(),
+          completedInterview.scheduledAt,
+        ),
+      })) === 0,
+      "a completed interview is not reminded",
+    );
+    assert(
+      (await Notification.countDocuments({
+        dedupeKey: assessmentReminderDedupeKey(
+          fixture._id.toString(),
+          demo!._id.toString(),
+          fixture.scheduledAt!,
+        ),
+      })) === 1,
+      "an assigned student with no finished attempt gets one assessment reminder",
+    );
+    assert(
+      (await Notification.countDocuments({
+        dedupeKey: assessmentReminderDedupeKey(
+          fixture._id.toString(),
+          rohan!._id.toString(),
+          fixture.scheduledAt!,
+        ),
+      })) === 0,
+      "a student who already submitted is not reminded",
+    );
+
+    const riya = await User.findOne({ email: "riya@codeshield.ai" });
+    if (riya) {
+      riyaId = riya._id;
+      await Interview.updateOne({ _id: due._id }, { interviewerId: riya._id });
+      await processDueReminders(sweepNow);
+      assert(
+        (await Notification.countDocuments({
+          dedupeKey: interviewReminderDedupeKey(
+            due._id.toString(),
+            riya._id.toString(),
+            due.scheduledAt,
+          ),
+        })) === 1,
+        "the newly assigned interviewer receives the upcoming reminder",
+      );
+      assert(
+        (await Notification.countDocuments({
+          dedupeKey: interviewReminderDedupeKey(
+            due._id.toString(),
+            kabir!._id.toString(),
+            due.scheduledAt,
+          ),
+        })) === 1,
+        "the previous interviewer does not receive another reminder",
+      );
+    }
+
+    const beforeFailure = await Interview.findById(due._id).lean();
+    const { createNotification } = await import("../src/lib/notifications/create");
+    await createNotification({
+      userId: demo!._id,
+      type: "NOT_A_TYPE" as never,
+      title: "bad",
+      message: "bad",
+    });
+    const afterFailure = await Interview.findById(due._id).lean();
+    assert(
+      !!beforeFailure &&
+        !!afterFailure &&
+        afterFailure.status === beforeFailure.status,
+      "a notification insert failure leaves the interview unchanged",
+    );
   } finally {
     await Certificate.deleteMany({ resultId: result._id });
     await Result.deleteMany({ _id: result._id });
     await Notification.deleteMany({ userId: { $in: userIds } });
+    const dedupeIds = [
+      ...extraInterviewIds.map((id) => id.toString()),
+      fixtureAssessmentId?.toString(),
+    ].filter((id): id is string => Boolean(id));
+    if (dedupeIds.length) {
+      await Notification.deleteMany({
+        $or: dedupeIds.map((id) => ({ dedupeKey: { $regex: id } })),
+      });
+    }
+    if (extraInterviewIds.length) {
+      await Interview.deleteMany({ _id: { $in: extraInterviewIds } });
+    }
+    if (fixtureAttemptId) await Attempt.deleteMany({ _id: fixtureAttemptId });
+    if (fixtureAssessmentId) {
+      await Assessment.deleteMany({ _id: fixtureAssessmentId });
+    }
   }
 }
 
 async function main() {
   console.log("Phase 20 in-app notifications verification\n");
   staticChecks();
+  pureChecks();
   await dbChecks();
   console.log("\nPASS: Phase 20 checks");
   await mongoose.disconnect();

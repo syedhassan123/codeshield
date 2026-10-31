@@ -189,3 +189,38 @@ export function isEyeGazeObservationEvent(eventType: SecurityEventType) {
     eventType === "EYE_GAZE_AWAY" || eventType === "EYE_GAZE_AWAY_PROLONGED"
   );
 }
+
+const SECRET_METADATA_KEY =
+  /pass(word)?|token|secret|cookie|auth|mongo|smtp|api[_-]?key/i;
+const BIOMETRIC_METADATA_KEY =
+  /landmark|iris|mesh|screenshot|frame|pixel|embedding|crop|image|biometric/i;
+
+const MAX_METADATA_KEYS = 24;
+const MAX_METADATA_STRING = 200;
+
+/**
+ * Keep only small derived fields. Nested objects, images, and landmarks are dropped.
+ */
+export function sanitizeSecurityEventMetadata(
+  metadata: unknown,
+): Record<string, string | number | boolean | null> {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {};
+  }
+
+  const safe: Record<string, string | number | boolean | null> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (Object.keys(safe).length >= MAX_METADATA_KEYS) break;
+    if (SECRET_METADATA_KEY.test(key) || BIOMETRIC_METADATA_KEY.test(key)) {
+      continue;
+    }
+    if (typeof value === "string") {
+      safe[key] = value.slice(0, MAX_METADATA_STRING);
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      safe[key] = value;
+    } else if (typeof value === "boolean" || value === null) {
+      safe[key] = value;
+    }
+  }
+  return safe;
+}

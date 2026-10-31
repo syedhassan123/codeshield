@@ -55,6 +55,7 @@ const InterviewSchema = new Schema(
   { timestamps: true },
 );
 
+InterviewSchema.index({ status: 1, scheduledAt: 1 });
 InterviewSchema.index({ interviewerId: 1, scheduledAt: -1 });
 InterviewSchema.index({ interviewerId: 1, status: 1, scheduledAt: 1 });
 InterviewSchema.index({ candidateId: 1, scheduledAt: -1 });

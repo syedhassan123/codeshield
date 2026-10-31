@@ -16,6 +16,7 @@ import { recalculateResultScores } from "@/lib/exam/score";
 import { buildSecuritySummary } from "@/lib/exam/security";
 import { notifyResultReady } from "@/lib/notifications/events";
 import { analyzeProctoringAttempt } from "@/lib/proctoring/analyze";
+import { buildProctoringReviewView } from "@/lib/proctoring/review";
 import {
   serializeAttempt,
   serializeResult,
@@ -27,8 +28,19 @@ import {
   requestSubjectiveGradeSuggestion,
 } from "@/lib/ai/subjective-grade";
 import {
+  attemptTextSearchClause,
+  loadProctoringReviewQueue,
+} from "@/lib/admin/proctoring-analytics";
+import {
+  loadProctoringCaseReviewView,
+  saveProctoringCaseReview,
+} from "@/lib/admin/proctoring-case";
+import { REVIEW_CONFLICT_MESSAGE } from "@/lib/proctoring/case-review";
+import {
   adminAttemptFilterSchema,
   gradeQuestionSchema,
+  proctoringReviewQueueSchema,
+  proctoringCaseReviewSchema,
   suggestSubjectiveGradeSchema,
 } from "@/lib/validators/grading";
 import { Assessment } from "@/models/Assessment";
@@ -109,6 +121,9 @@ export async function listAdminAttemptsAction(rawFilters?: unknown) {
       }
     }
 
+    const searchClause = await attemptTextSearchClause(filters.search);
+    if (searchClause) query.$and = [searchClause];
+
     const skip = (filters.page - 1) * filters.pageSize;
 
     const [total, attempts] = await Promise.all([
@@ -127,10 +142,15 @@ export async function listAdminAttemptsAction(rawFilters?: unknown) {
     ];
     const attemptIds = attempts.map((a) => a._id);
 
-    const [students, assessments, results] = await Promise.all([
+    const [students, assessments, results, securityEvents] = await Promise.all([
       User.find({ _id: { $in: studentIds } }).select("name email"),
       Assessment.find({ _id: { $in: assessmentIds } }).select("title type"),
       Result.find({ attemptId: { $in: attemptIds } }),
+      SecurityEvent.find({ attemptId: { $in: attemptIds } })
+        .select("attemptId eventType severity timestamp metadata")
+        .sort({ timestamp: 1 })
+        .limit(2000)
+        .lean(),
     ]);
 
     const studentMap = new Map(
@@ -142,9 +162,15 @@ export async function listAdminAttemptsAction(rawFilters?: unknown) {
     const resultMap = new Map(
       results.map((r) => [r.attemptId.toString(), r]),
     );
+    const eventsByAttempt = new Map<string, typeof securityEvents>();
+    for (const event of securityEvents) {
+      const key = event.attemptId.toString();
+      const bucket = eventsByAttempt.get(key) ?? [];
+      bucket.push(event);
+      eventsByAttempt.set(key, bucket);
+    }
 
-    const search = filters.search.trim().toLowerCase();
-    let rows = attempts.map((attempt) => {
+    const rows = attempts.map((attempt) => {
       const student = studentMap.get(attempt.studentId.toString());
       const assessment = assessmentMap.get(attempt.assessmentId.toString());
       const result = resultMap.get(attempt._id.toString());
@@ -152,9 +178,34 @@ export async function listAdminAttemptsAction(rawFilters?: unknown) {
         attempt.status === "in_progress"
           ? "none"
           : (result?.evaluationStatus ?? "pending");
+      const attemptEvents = eventsByAttempt.get(attempt._id.toString()) ?? [];
+      const review = buildProctoringReviewView(
+        analyzeProctoringAttempt({
+          events: attemptEvents.map((event) => ({
+            id: event._id.toString(),
+            eventType: event.eventType,
+            severity: event.severity,
+            timestamp: new Date(event.timestamp).toISOString(),
+            metadata:
+              event.metadata && typeof event.metadata === "object"
+                ? (event.metadata as Record<string, unknown>)
+                : {},
+          })),
+          attemptStartedAt: attempt.startedAt.toISOString(),
+          recordingStartedAt: null,
+        }),
+      );
 
       return {
         id: attempt._id.toString(),
+        proctoring: {
+          riskScore: review.riskScore,
+          riskLevel: review.riskLevel,
+          recommendation: review.recommendation,
+          rawEventCount: review.rawEventCount,
+          derivedIncidentCount: review.derivedIncidentCount,
+          topCategory: review.topCategory,
+        },
         studentName: student?.name ?? "Unknown",
         studentEmail: student?.email ?? "",
         assessmentId: attempt.assessmentId.toString(),
@@ -172,15 +223,6 @@ export async function listAdminAttemptsAction(rawFilters?: unknown) {
           : null,
       };
     });
-
-    if (search) {
-      rows = rows.filter(
-        (r) =>
-          r.studentName.toLowerCase().includes(search) ||
-          r.studentEmail.toLowerCase().includes(search) ||
-          r.assessmentTitle.toLowerCase().includes(search),
-      );
-    }
 
     return op.respond({
       attempts: rows,
@@ -271,6 +313,7 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
       op.runMongo("FIND_SECURITY_EVENTS", () =>
         SecurityEvent.find({ attemptId: attempt._id })
           .sort({ timestamp: 1 })
+          .limit(1000)
           .lean(),
       ),
       op.runMongo("FIND_RECORDING", () =>
@@ -352,6 +395,7 @@ export async function getAdminAttemptDetailAction(attemptId: string) {
           }
         : null,
       proctoringAnalysis,
+      proctoringReview: await loadProctoringCaseReviewView(attempt._id.toString()),
     };
 
     return op.respond(payload, 200);
@@ -598,6 +642,62 @@ export async function completeEvaluationAction(attemptId: string) {
     return op.respond({ result: serializeResult(result) });
   } catch (error) {
     return op.respondError(error);
+  }
+}
+
+export async function listProctoringReviewQueueAction(rawFilters?: unknown) {
+  const op = createServerOp({
+    domain: "ATTEMPT",
+    operation: "REVIEW_QUEUE",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const session = await requireAdmin();
+    op.auth(session.user);
+    op.allowed({ action: "proctoring_review_queue", role: session.user.role });
+    await connectDB();
+    const filters = proctoringReviewQueueSchema.parse(rawFilters ?? {});
+    const result = await loadProctoringReviewQueue(filters);
+    return op.respond(result);
+  } catch (error) {
+    if (error instanceof ActionError || error instanceof ZodError) {
+      return op.respondError(error);
+    }
+    return op.respondError("Unable to load proctoring analytics.");
+  }
+}
+
+export async function submitProctoringReviewAction(raw: unknown) {
+  const op = createServerOp({
+    domain: "ATTEMPT",
+    operation: "REVIEW_DECISION",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const session = await requireAdmin();
+    op.auth(session.user);
+    op.allowed({ action: "proctoring_review_decision", role: session.user.role });
+    const data = proctoringCaseReviewSchema.parse(raw ?? {});
+    await connectDB();
+    const saved = await saveProctoringCaseReview({
+      attemptId: data.attemptId,
+      decision: data.decision,
+      note: data.note,
+      expectedVersion: data.expectedVersion,
+      reviewerId: session.user.id,
+      reviewedAt: new Date(),
+    });
+    if (!saved.ok) throw new ActionError(REVIEW_CONFLICT_MESSAGE);
+    revalidatePath("/admin/results");
+    revalidatePath(`/admin/results/${data.attemptId}`);
+    return op.respond({ review: saved.review });
+  } catch (error) {
+    if (error instanceof ActionError || error instanceof ZodError) {
+      return op.respondError(error);
+    }
+    return op.respondError("Unable to save proctoring review.");
   }
 }
 

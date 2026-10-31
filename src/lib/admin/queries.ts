@@ -460,6 +460,10 @@ function buildMonitoringFlags(events: Array<{ eventType: string }>) {
     types.has("REPEATED_LOOKING_AWAY");
   flags.push(headWarn ? "HEAD ⚠" : "HEAD");
 
+  const gazeWarn =
+    types.has("EYE_GAZE_AWAY") || types.has("EYE_GAZE_AWAY_PROLONGED");
+  flags.push(gazeWarn ? "GAZE ⚠" : "GAZE");
+
   const multi = types.has("MULTIPLE_FACES_DETECTED");
   flags.push(multi ? "MULTI ⚠" : "ALONE");
 

@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import type { SecuritySummary } from "@/lib/exam/security";
 import type { SerializedSecurityEvent } from "@/lib/actions/exam-security";
+import { labelForEvent } from "@/lib/proctoring/evidence";
 
 function riskClass(level: string) {
   if (level === "HIGH") return "text-danger bg-danger-soft";
@@ -11,7 +12,7 @@ function riskClass(level: string) {
 }
 
 function formatEventLabel(type: string) {
-  return type.replaceAll("_", " ");
+  return labelForEvent(type);
 }
 
 export function AdminSecurityReport({
@@ -90,6 +91,14 @@ export function AdminSecurityReport({
         <Stat
           label="Repeated looking away"
           value={String(counts.REPEATED_LOOKING_AWAY ?? 0)}
+        />
+        <Stat
+          label="Eye gaze away"
+          value={String(counts.EYE_GAZE_AWAY ?? 0)}
+        />
+        <Stat
+          label="Prolonged eye gaze"
+          value={String(counts.EYE_GAZE_AWAY_PROLONGED ?? 0)}
         />
       </div>
 

@@ -8,6 +8,7 @@ export type NotificationRow = {
   message: string;
   link: string | null;
   read: boolean;
+  readAt: string | null;
   createdAt: string;
 };
 
@@ -29,6 +30,7 @@ export async function listNotificationsForUser(
       message: n.message,
       link: n.link ?? null,
       read: n.read,
+      readAt: n.readAt ? new Date(n.readAt).toISOString() : null,
       createdAt: n.createdAt.toISOString(),
     })),
     unreadCount,
@@ -44,7 +46,7 @@ export async function markNotificationRead(
   if (!mongoose.Types.ObjectId.isValid(notificationId)) return null;
   return Notification.findOneAndUpdate(
     { _id: notificationId, userId },
-    { $set: { read: true } },
+    { $set: { read: true, readAt: new Date() } },
     { returnDocument: "after" },
   );
 }
@@ -52,6 +54,6 @@ export async function markNotificationRead(
 export async function markAllNotificationsRead(userId: string) {
   await Notification.updateMany(
     { userId, read: false },
-    { $set: { read: true } },
+    { $set: { read: true, readAt: new Date() } },
   );
 }

@@ -5,6 +5,7 @@ import { getRecordingPlaybackUrlAction } from "@/lib/actions/exam-recording";
 import type { SerializedExamRecording } from "@/lib/actions/exam-recording";
 import type { SerializedSecurityEvent } from "@/lib/actions/exam-security";
 import type { AssessmentSecuritySettings } from "@/types/assessment-security";
+import { labelForEvent } from "@/lib/proctoring/evidence";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,11 @@ const FACE_EVENT_TYPES = new Set([
   "NO_FACE_DETECTED",
   "MULTIPLE_FACES_DETECTED",
   "FACE_DETECTION_UNAVAILABLE",
+]);
+
+const EYE_EVENT_TYPES = new Set([
+  "EYE_GAZE_AWAY",
+  "EYE_GAZE_AWAY_PROLONGED",
 ]);
 
 const HEAD_EVENT_TYPES = new Set([
@@ -81,6 +87,9 @@ export function AdminProctoringReport({
   const repeatedHeadCount = headEvents.filter(
     (e) => e.eventType === "REPEATED_LOOKING_AWAY",
   ).length;
+  const eyeEvents = securityEvents.filter((e) =>
+    EYE_EVENT_TYPES.has(e.eventType),
+  );
 
   const loadPlayback = () => {
     if (!recording) return;
@@ -184,7 +193,7 @@ export function AdminProctoringReport({
                   >
                     <p className="text-sm font-semibold">
                       {new Date(event.timestamp).toLocaleTimeString()} ·{" "}
-                      {event.eventType.replaceAll("_", " ")}
+                      {labelForEvent(event.eventType)}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {duration ? `Duration: ${duration}` : "Duration: —"}
@@ -257,7 +266,7 @@ export function AdminProctoringReport({
                   >
                     <p className="text-sm font-semibold">
                       {new Date(event.timestamp).toLocaleTimeString()} ·{" "}
-                      {event.eventType.replaceAll("_", " ")}
+                      {labelForEvent(event.eventType)}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {duration ? `Duration: ${duration}` : ""}
@@ -265,6 +274,62 @@ export function AdminProctoringReport({
                       {episodeCount != null && windowMs != null
                         ? ` · ${episodeCount} episodes / ${Math.round(windowMs / 60_000)} min`
                         : ""}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {securitySettings?.requireHeadMonitoring && (
+        <div className="rounded-xl border border-border p-4 mb-4">
+          <h4 className="text-sm font-semibold mb-3">Eye gaze observations</h4>
+          <p className="text-xs text-muted-foreground mb-3">
+            Probabilistic gaze signals. They are not webcam-calibrated and are
+            not a confirmed misconduct determination.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3 text-sm mb-4">
+            <Row
+              label="Eye gaze away"
+              value={String(
+                eyeEvents.filter((e) => e.eventType === "EYE_GAZE_AWAY").length,
+              )}
+            />
+            <Row
+              label="Prolonged eye gaze"
+              value={String(
+                eyeEvents.filter(
+                  (e) => e.eventType === "EYE_GAZE_AWAY_PROLONGED",
+                ).length,
+              )}
+            />
+          </div>
+          {eyeEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No eye-gaze observations recorded for this attempt.
+            </p>
+          ) : (
+            <ul className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              {eyeEvents.map((event) => {
+                const duration = formatDurationMs(event.metadata.durationMs);
+                const direction =
+                  typeof event.metadata.direction === "string"
+                    ? event.metadata.direction
+                    : null;
+                return (
+                  <li
+                    key={event.id}
+                    className="rounded-xl border border-border px-3 py-2.5"
+                  >
+                    <p className="text-sm font-semibold">
+                      {new Date(event.timestamp).toLocaleTimeString()} ·{" "}
+                      {labelForEvent(event.eventType)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {duration ? `Duration: ${duration}` : "Duration: —"}
+                      {direction ? ` · Direction: ${direction}` : ""}
                     </p>
                   </li>
                 );

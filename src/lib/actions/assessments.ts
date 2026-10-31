@@ -27,6 +27,7 @@ import {
   DEFAULT_ASSESSMENT_SECURITY,
   normalizeAssessmentSecurity,
 } from "@/types/assessment-security";
+import { newlyAssignedStudentIds, notifyAssessmentAssigned } from "@/lib/notifications/events";
 import type { AssessmentType, QuestionType } from "@/types/assessment";
 
 function toError(error: unknown) {
@@ -215,6 +216,12 @@ export async function createAssessmentAction(raw: unknown) {
       }),
     );
 
+    await notifyAssessmentAssigned({
+      assessmentId: doc._id.toString(),
+      assessmentTitle: doc.title,
+      studentIds: newlyAssignedStudentIds([], data.assignedStudentIds ?? []),
+    });
+
     revalidatePath("/admin/assessments");
     revalidatePath("/student/assessments");
     op.success({ code: doc.code, status: doc.status });
@@ -243,6 +250,9 @@ export async function updateAssessmentAction(id: string, raw: unknown) {
       Assessment.findById(id),
     );
     if (!doc) throw new ActionError("Assessment not found.");
+    const previousAssigned = doc.assignedStudentIds.map((studentId) =>
+      studentId.toString(),
+    );
 
     const questionIds = await op.runMongo("validating question refs", () =>
       assertQuestionsExist(data.questionIds),
@@ -278,6 +288,15 @@ export async function updateAssessmentAction(id: string, raw: unknown) {
     }
 
     await op.runMongo("saving assessment", () => doc.save());
+
+    await notifyAssessmentAssigned({
+      assessmentId: doc._id.toString(),
+      assessmentTitle: doc.title,
+      studentIds: newlyAssignedStudentIds(
+        previousAssigned,
+        doc.assignedStudentIds.map((studentId) => studentId.toString()),
+      ),
+    });
 
     revalidatePath("/admin/assessments");
     revalidatePath(`/admin/assessments/${id}`);

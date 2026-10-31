@@ -143,6 +143,7 @@ const AssessmentSchema = new Schema(
 );
 
 AssessmentSchema.index({ status: 1, visibility: 1 });
+AssessmentSchema.index({ status: 1, scheduledAt: 1 });
 AssessmentSchema.index({ title: "text", description: "text" });
 
 export type AssessmentDocument = InferSchemaType<typeof AssessmentSchema> & {

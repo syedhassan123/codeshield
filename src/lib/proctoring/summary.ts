@@ -65,6 +65,15 @@ export function buildProctoringReviewSummary(options: {
     );
   }
 
+  const eyeAway = riskFactors.filter((factor) =>
+    ["EYE_GAZE_AWAY", "EYE_GAZE_AWAY_PROLONGED"].includes(factor.id),
+  );
+  if (eyeAway.length) {
+    recommendedReviewPoints.push(
+      "Eye-gaze signals are probabilistic and not yet webcam-calibrated. Review them with the recording, not as confirmed misconduct.",
+    );
+  }
+
   for (const cluster of correlations.filter(
     (item) => item.reviewPriority === "elevated",
   )) {

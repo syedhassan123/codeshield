@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
+import { AdminProctoringReview } from "@/components/admin/admin-proctoring-review";
 import {
   listAdminAttemptFilterOptionsAction,
   listAdminAttemptsAction,
@@ -27,6 +28,14 @@ type AttemptRow = {
   totalMarks: number;
   startedAt: string;
   submittedAt: string | null;
+  proctoring?: {
+    riskScore: number;
+    riskLevel: string;
+    recommendation: string;
+    rawEventCount: number;
+    derivedIncidentCount: number;
+    topCategory: string | null;
+  };
 };
 
 type FilterOption = { id: string; title?: string; name?: string; email?: string };
@@ -46,8 +55,23 @@ export function AdminResultsClient() {
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [applied, setApplied] = useState({
+    assessmentId: "all",
+    studentId: "all",
+    status: "all",
+    search: "",
+  });
 
   const load = (nextPage = page) => {
+    const nextApplied = { assessmentId, studentId, status, search };
+    setApplied((prev) =>
+      prev.assessmentId === nextApplied.assessmentId &&
+      prev.studentId === nextApplied.studentId &&
+      prev.status === nextApplied.status &&
+      prev.search === nextApplied.search
+        ? prev
+        : nextApplied,
+    );
     setError("");
     startTransition(async () => {
       const result = await listAdminAttemptsAction({
@@ -75,9 +99,6 @@ export function AdminResultsClient() {
   };
 
 
-  console.log("Results: ",rows);
-
-
   useEffect(() => {
     startTransition(async () => {
       const opts = await listAdminAttemptFilterOptionsAction();
@@ -94,7 +115,7 @@ export function AdminResultsClient() {
     <div>
       <PageHeader
         title="Results & Attempts"
-        description="Review student attempts and complete manual grading."
+        description="Grade attempts and prioritize proctoring review. Window totals are not limited to the grading page."
       />
 
       <div className="card-soft p-4 mb-4 grid md:grid-cols-2 xl:grid-cols-5 gap-3">
@@ -168,6 +189,12 @@ export function AdminResultsClient() {
               setEvaluationStatus("all");
               setSearch("");
               setPage(1);
+              setApplied({
+                assessmentId: "all",
+                studentId: "all",
+                status: "all",
+                search: "",
+              });
               startTransition(async () => {
                 const result = await listAdminAttemptsAction({
                   page: 1,
@@ -193,6 +220,18 @@ export function AdminResultsClient() {
         </div>
       )}
 
+      <AdminProctoringReview
+        assessmentId={applied.assessmentId}
+        studentId={applied.studentId}
+        status={applied.status}
+        search={applied.search}
+      />
+
+      <h2 className="font-display font-bold text-base mb-1">Grading list</h2>
+      <p className="text-sm text-muted-foreground mb-3">
+        Newest attempts first. Risk on a row is that attempt only. Platform order and totals are in the review queue above.
+      </p>
+
       <div className="card-soft overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -203,6 +242,8 @@ export function AdminResultsClient() {
               <th className="text-left py-3 px-4">Evaluation</th>
               <th className="text-left py-3 px-4">Objective</th>
               <th className="text-left py-3 px-4">Final</th>
+              <th className="text-left py-3 px-4">Risk</th>
+              <th className="text-left py-3 px-4">Incidents</th>
               <th className="text-left py-3 px-4">Submitted</th>
               <th className="text-left py-3 px-4">Action</th>
             </tr>
@@ -250,6 +291,45 @@ export function AdminResultsClient() {
                     ? "—"
                     : `${r.finalScore}/${r.totalMarks}`}
                 </td>
+                <td className="py-3 px-4">
+                  {r.proctoring ? (
+                    <span>
+                      <span className="font-semibold">
+                        {r.proctoring.riskScore}
+                      </span>
+                      <span
+                        className={cn(
+                          "ml-2 text-[11px] font-semibold uppercase",
+                          r.proctoring.riskLevel === "HIGH" ||
+                            r.proctoring.riskLevel === "CRITICAL"
+                            ? "text-danger"
+                            : r.proctoring.riskLevel === "MEDIUM"
+                              ? "text-amber-700"
+                              : "text-success",
+                        )}
+                      >
+                        {r.proctoring.riskLevel}
+                      </span>
+                      <div className="text-[11px] text-muted-foreground">
+                        {r.proctoring.recommendation}
+                      </div>
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="py-3 px-4 text-[12px]">
+                  {r.proctoring
+                    ? r.proctoring.rawEventCount === 0
+                      ? "None recorded"
+                      : `${r.proctoring.derivedIncidentCount} incident${r.proctoring.derivedIncidentCount === 1 ? "" : "s"}`
+                    : "—"}
+                  {r.proctoring?.topCategory ? (
+                    <div className="text-[11px] text-muted-foreground">
+                      {r.proctoring.topCategory}
+                    </div>
+                  ) : null}
+                </td>
                 <td className="py-3 px-4 text-[12px] text-muted-foreground">
                   {r.submittedAt
                     ? new Date(r.submittedAt).toLocaleString()
@@ -265,7 +345,7 @@ export function AdminResultsClient() {
             {loaded && !rows.length && !pending && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={10}
                   className="py-10 px-4 text-center text-muted-foreground"
                 >
                   No attempts match these filters.
@@ -275,7 +355,7 @@ export function AdminResultsClient() {
             {!loaded && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={10}
                   className="py-10 px-4 text-center text-muted-foreground"
                 >
                   Loading attempts…

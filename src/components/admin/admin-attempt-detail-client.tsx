@@ -593,6 +593,9 @@ import { PageHeader } from "@/components/ui/page-header";
 import { AdminSecurityReport } from "@/components/admin/admin-security-report";
 import { AdminProctoringAnalysisReport } from "@/components/admin/admin-proctoring-analysis-report";
 import { AdminProctoringReport } from "@/components/admin/admin-proctoring-report";
+import { AdminProctoringCaseReview } from "@/components/admin/admin-proctoring-case-review";
+import { unreviewedProctoringCase } from "@/lib/proctoring/case-review";
+import type { ProctoringCaseReviewView } from "@/lib/proctoring/case-review";
 import { cn } from "@/lib/utils";
 import type { SecuritySummary } from "@/lib/exam/security";
 import type { SerializedSecurityEvent } from "@/lib/actions/exam-security";
@@ -856,6 +859,7 @@ export function AdminAttemptDetailClient({
   security,
   recording = null,
   proctoringAnalysis = null,
+  proctoringReview = unreviewedProctoringCase(),
 }: {
   attempt: SerializedAttempt;
   student: { id: string; name: string; email: string };
@@ -875,6 +879,7 @@ export function AdminAttemptDetailClient({
   } | null;
   recording?: SerializedExamRecording | null;
   proctoringAnalysis?: ProctoringAnalysis | null;
+  proctoringReview?: ProctoringCaseReviewView;
 }) {
   /* ---------- state ---------- */
   const [attempt] = useState(initialAttempt);
@@ -1154,9 +1159,19 @@ export function AdminAttemptDetailClient({
         timeTaken={timeTaken}
       />
 
-      {proctoringAnalysis && (
+      {proctoringAnalysis ? (
         <AdminProctoringAnalysisReport analysis={proctoringAnalysis} />
+      ) : (
+        <div className="card-soft p-5 mb-5 text-sm text-muted-foreground">
+          Unable to load proctoring report.
+        </div>
       )}
+
+      <AdminProctoringCaseReview
+        attemptId={attempt.id}
+        attemptStatus={attempt.status}
+        review={proctoringReview}
+      />
 
       {security && (
         <AdminSecurityReport

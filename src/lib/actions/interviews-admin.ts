@@ -12,7 +12,12 @@ import { ActionError, requireAdmin } from "@/lib/auth-guards";
 import { connectDB } from "@/lib/db";
 import { createServerOp } from "@/lib/debug";
 import { isValidObjectId } from "@/lib/interviewer/queries";
-import { notifyInterviewScheduled } from "@/lib/notifications/events";
+import {
+  interviewScheduleChanged,
+  notifyInterviewCancelled,
+  notifyInterviewRescheduled,
+  notifyInterviewScheduled,
+} from "@/lib/notifications/events";
 import {
   cancelInterviewSchema,
   createInterviewSchema,
@@ -75,11 +80,12 @@ export async function createInterviewAction(raw: unknown) {
 
     revalidateInterviewSurfaces();
 
-    // Phase 20: notify both the candidate and the assigned interviewer.
     await notifyInterviewScheduled({
       candidateId: doc.candidateId,
       interviewerId: doc.interviewerId,
       interviewTitle: doc.title,
+      interviewId: doc._id.toString(),
+      scheduledAt: doc.scheduledAt,
     });
 
     const interview = await getAdminInterview(doc._id.toString());
@@ -181,6 +187,37 @@ export async function updateInterviewAction(raw: unknown) {
       throw new ActionError("Unable to update interview. Please refresh and try again.");
     }
 
+    if (
+      updated.status === "scheduled" &&
+      interviewScheduleChanged(
+        {
+          candidateId: interview.candidateId.toString(),
+          interviewerId: interview.interviewerId.toString(),
+          scheduledAt: new Date(interview.scheduledAt),
+          durationMin: interview.durationMin,
+        },
+        {
+          candidateId: updated.candidateId.toString(),
+          interviewerId: updated.interviewerId.toString(),
+          scheduledAt: new Date(updated.scheduledAt),
+          durationMin: updated.durationMin,
+        },
+      )
+    ) {
+      await notifyInterviewRescheduled({
+        interviewId: updated._id.toString(),
+        interviewTitle: updated.title,
+        scheduledAt: new Date(updated.scheduledAt),
+        durationMin: updated.durationMin,
+        previous: {
+          candidateId: interview.candidateId.toString(),
+          interviewerId: interview.interviewerId.toString(),
+        },
+        candidateId: updated.candidateId.toString(),
+        interviewerId: updated.interviewerId.toString(),
+      });
+    }
+
     revalidateInterviewSurfaces();
 
     const serialized = await getAdminInterview(updated._id.toString());
@@ -241,6 +278,14 @@ export async function cancelInterviewAction(raw: unknown) {
     if (!updated) {
       throw new ActionError("Unable to cancel interview.");
     }
+
+    await notifyInterviewCancelled({
+      interviewId: updated._id.toString(),
+      interviewTitle: updated.title,
+      scheduledAt: new Date(updated.scheduledAt),
+      candidateId: updated.candidateId,
+      interviewerId: updated.interviewerId,
+    });
 
     revalidateInterviewSurfaces();
 

@@ -32,6 +32,11 @@ export default async function AdminAttemptDetailPage({
       proctoringAnalysis={
         "proctoringAnalysis" in data ? data.proctoringAnalysis : null
       }
+      proctoringReview={
+        "proctoringReview" in data && data.proctoringReview
+          ? data.proctoringReview
+          : undefined
+      }
     />
   );
 }

@@ -2,7 +2,8 @@
 
 import { requireSession } from "@/lib/auth-guards";
 import { connectDB } from "@/lib/db";
-import { createServerOp } from "@/lib/debug";
+import { createServerOp, debugLog } from "@/lib/debug";
+import { processDueReminders } from "@/lib/notifications/reminders";
 import {
   listNotificationsForUser,
   markAllNotificationsRead,
@@ -21,6 +22,13 @@ export async function getNotificationsAction() {
     const session = await requireSession();
     op.auth(session.user);
     await connectDB();
+    try {
+      await processDueReminders();
+    } catch (error) {
+      debugLog("NOTIFICATION", "REMINDER_SWEEP_FAILED", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     op.allowed({ action: "list_own_notifications", role: session.user.role });
 
     const result = await listNotificationsForUser(session.user.id);

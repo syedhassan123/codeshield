@@ -12,6 +12,11 @@ export const NOTIFICATION_TYPES = [
   "CERTIFICATE_REVOKED",
   "RESULT_READY",
   "INTERVIEW_SCHEDULED",
+  "INTERVIEW_RESCHEDULED",
+  "INTERVIEW_CANCELLED",
+  "INTERVIEW_REMINDER",
+  "ASSESSMENT_ASSIGNED",
+  "ASSESSMENT_REMINDER",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -30,15 +35,23 @@ const NotificationSchema = new Schema(
     },
     title: { type: String, required: true },
     message: { type: String, required: true },
-    /** Relative in-app link to navigate to on click, e.g. /student/certificates/xyz */
+    /** Relative in-app link. External URLs are rejected before insert. */
     link: { type: String, default: null },
     read: { type: Boolean, default: false },
+    /** When the owner marked it read. Null while unread. */
+    readAt: { type: Date, default: null },
+    /** Stable key so retries and reminder sweeps insert at most once. */
+    dedupeKey: { type: String },
   },
   { timestamps: true },
 );
 
 NotificationSchema.index({ userId: 1, createdAt: -1 });
-NotificationSchema.index({ userId: 1, read: 1 });
+NotificationSchema.index({ userId: 1, read: 1, createdAt: -1 });
+NotificationSchema.index(
+  { dedupeKey: 1 },
+  { unique: true, sparse: true },
+);
 
 export type NotificationDocument = InferSchemaType<
   typeof NotificationSchema

@@ -104,7 +104,14 @@ export function WorkspaceShell({
       setUnreadCount((count) => Math.max(0, count - 1));
       void markNotificationReadAction(item.id);
     }
-    if (item.link) router.push(item.link);
+    if (
+      item.link &&
+      item.link.startsWith("/") &&
+      !item.link.startsWith("//") &&
+      !item.link.includes("://")
+    ) {
+      router.push(item.link);
+    }
   };
 
   const handleMarkAllRead = () => {
@@ -167,13 +174,19 @@ export function WorkspaceShell({
             <button
               type="button"
               onClick={handleToggleNotifications}
-              aria-label="Notifications"
+              aria-label={
+                unreadCount > 0
+                  ? `Notifications, ${unreadCount} unread`
+                  : "Notifications"
+              }
               aria-expanded={notifOpen}
               className="relative w-9 h-9 rounded-lg hover:bg-muted flex items-center justify-center"
             >
               <Bell className="w-4 h-4 text-muted-foreground" />
               {unreadCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-danger" />
+                <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-danger text-white text-[10px] font-semibold leading-4 text-center">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
               )}
             </button>
 
