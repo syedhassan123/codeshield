@@ -202,6 +202,7 @@ export function ExamSessionClient({
       estimate: eyeGazeEstimate,
       attemptId: attempt.id,
       headOrientation,
+      cameraActive,
     });
 
   const headWarningUx = useProctoringHeadWarningUx({
@@ -571,6 +572,7 @@ export function ExamSessionClient({
             headWarningTier={headWarningTier}
             headOrientation={headOrientation}
             headStatus={headStatus}
+            overlayVisible={headWarningUx.visible}
           />
         )}
 

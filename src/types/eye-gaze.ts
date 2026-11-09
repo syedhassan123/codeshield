@@ -51,4 +51,19 @@ export type EyeGazeTelemetry = {
   headYaw: number | null;
   headPitch: number | null;
   reason?: string;
+  /**
+   * Absolute-band direction from the estimator, kept for diagnostics.
+   * Warning logic uses `rawDirection`, which is baseline-relative.
+   */
+  absoluteDirection?: EyeGazeDirection;
+  baselineReady?: boolean;
+  baselineSampleCount?: number;
+  baselineX?: number | null;
+  baselineY?: number | null;
+  baselineSpreadX?: number | null;
+  baselineSpreadY?: number | null;
+  deltaX?: number | null;
+  deltaY?: number | null;
+  /** DEV status: collecting, ready, unavailable, or low confidence. */
+  calibrationStatus?: string;
 };

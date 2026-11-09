@@ -1,12 +1,15 @@
 "use client";
 
 import {
+  EYE_GAZE_DOWN_DELTA_THRESHOLD,
   EYE_GAZE_DOWN_THRESHOLD,
   EYE_GAZE_EXPECTED_LANDMARK_COUNT,
   EYE_GAZE_HORIZONTAL_CENTER_MAX,
   EYE_GAZE_HORIZONTAL_CENTER_MIN,
+  EYE_GAZE_LEFT_DELTA_THRESHOLD,
   EYE_GAZE_MIN_CONFIDENCE,
   EYE_GAZE_PROLONGED_THRESHOLD_MS,
+  EYE_GAZE_RIGHT_DELTA_THRESHOLD,
   EYE_GAZE_SMOOTH_MIN_AGREEMENT,
   EYE_GAZE_SMOOTH_WINDOW,
   EYE_GAZE_WARNING_THRESHOLD_MS,
@@ -22,6 +25,8 @@ type Props = {
   headWarningTier?: 0 | 1 | 2;
   headOrientation?: string;
   headStatus?: string;
+  /** Live overlay flag from the shared warning UX hook. */
+  overlayVisible?: boolean;
 };
 
 /**
@@ -36,6 +41,7 @@ export function EyeGazeDebugPanel({
   headWarningTier = 0,
   headOrientation = "NORMAL",
   headStatus = "active",
+  overlayVisible = false,
 }: Props) {
   if (process.env.NODE_ENV === "production") return null;
 
@@ -65,11 +71,36 @@ export function EyeGazeDebugPanel({
       <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
         Eye gaze (dev calibration)
       </p>
+      <p className="mb-1.5 text-[10px] font-semibold">
+        {telemetry.calibrationStatus ?? "Tracking unavailable"}
+      </p>
       <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-        <dt className="text-muted-foreground">raw</dt>
+        <dt className="text-muted-foreground">baselineReady</dt>
+        <dd>{telemetry.baselineReady ? "yes" : "no"}</dd>
+        <dt className="text-muted-foreground">baselineSamples</dt>
+        <dd>{telemetry.baselineSampleCount ?? 0}</dd>
+        <dt className="text-muted-foreground">baselineX</dt>
+        <dd>{fmt(telemetry.baselineX)}</dd>
+        <dt className="text-muted-foreground">baselineY</dt>
+        <dd>{fmt(telemetry.baselineY)}</dd>
+        <dt className="text-muted-foreground">spreadX/Y</dt>
+        <dd>
+          {fmt(telemetry.baselineSpreadX)} / {fmt(telemetry.baselineSpreadY)}
+        </dd>
+        <dt className="text-muted-foreground">fusedX</dt>
+        <dd>{fmt(telemetry.fusedNormalizedX)}</dd>
+        <dt className="text-muted-foreground">fusedY</dt>
+        <dd>{fmt(telemetry.fusedNormalizedY)}</dd>
+        <dt className="text-muted-foreground">deltaX</dt>
+        <dd>{fmt(telemetry.deltaX)}</dd>
+        <dt className="text-muted-foreground">deltaY</dt>
+        <dd>{fmt(telemetry.deltaY)}</dd>
+        <dt className="text-muted-foreground">rawDirection</dt>
         <dd>{telemetry.rawDirection}</dd>
-        <dt className="text-muted-foreground">stable</dt>
+        <dt className="text-muted-foreground">stableDirection</dt>
         <dd className="font-semibold">{telemetry.stableDirection}</dd>
+        <dt className="text-muted-foreground">absolute</dt>
+        <dd>{telemetry.absoluteDirection ?? "—"}</dd>
         <dt className="text-muted-foreground">confidence</dt>
         <dd>
           {fmt(telemetry.confidence, 2)}
@@ -88,25 +119,19 @@ export function EyeGazeDebugPanel({
         <dd>{warningTier}</dd>
         <dt className="text-muted-foreground">fusion</dt>
         <dd className="truncate">{fusion.combinedAttentionState}</dd>
-        <dt className="text-muted-foreground">overlay</dt>
+        <dt className="text-muted-foreground">fusionSource</dt>
         <dd>
           {fusion.warningSource}/{fusion.warningTier}
         </dd>
-        <dt className="text-muted-foreground">landmarks</dt>
+        <dt className="text-muted-foreground">overlayVisible</dt>
+        <dd>{overlayVisible ? "true" : "false"}</dd>
+        <dt className="text-muted-foreground">landmarkCount</dt>
         <dd className={landmarkOk ? "text-success" : "text-danger"}>
           {telemetry.landmarkCount || "—"}
           {telemetry.landmarkCount
             ? ` / ${EYE_GAZE_EXPECTED_LANDMARK_COUNT}`
             : ""}
         </dd>
-        <dt className="text-muted-foreground">leftX</dt>
-        <dd>{fmt(telemetry.leftNormalizedX)}</dd>
-        <dt className="text-muted-foreground">rightX</dt>
-        <dd>{fmt(telemetry.rightNormalizedX)}</dd>
-        <dt className="text-muted-foreground">fusedX</dt>
-        <dd>{fmt(telemetry.fusedNormalizedX)}</dd>
-        <dt className="text-muted-foreground">fusedY</dt>
-        <dd>{fmt(telemetry.fusedNormalizedY)}</dd>
         <dt className="text-muted-foreground">yaw</dt>
         <dd>
           {telemetry.headYaw == null ? "—" : Math.round(telemetry.headYaw)}
@@ -123,8 +148,11 @@ export function EyeGazeDebugPanel({
         ) : null}
       </dl>
       <p className="mt-2 pt-2 border-t border-border text-[9px] text-muted-foreground leading-relaxed">
-        CENTER {EYE_GAZE_HORIZONTAL_CENTER_MIN.toFixed(2)}–
-        {EYE_GAZE_HORIZONTAL_CENTER_MAX.toFixed(2)} · DOWN ≥{" "}
+        Δ LEFT ≤ -{EYE_GAZE_LEFT_DELTA_THRESHOLD.toFixed(2)} · RIGHT ≥{" "}
+        {EYE_GAZE_RIGHT_DELTA_THRESHOLD.toFixed(2)} · DOWN ≥{" "}
+        {EYE_GAZE_DOWN_DELTA_THRESHOLD.toFixed(2)} · absolute CENTER{" "}
+        {EYE_GAZE_HORIZONTAL_CENTER_MIN.toFixed(2)}–
+        {EYE_GAZE_HORIZONTAL_CENTER_MAX.toFixed(2)} · abs DOWN ≥{" "}
         {EYE_GAZE_DOWN_THRESHOLD.toFixed(2)} · minConf{" "}
         {EYE_GAZE_MIN_CONFIDENCE.toFixed(2)} · smooth{" "}
         {EYE_GAZE_SMOOTH_WINDOW}/{EYE_GAZE_SMOOTH_MIN_AGREEMENT} · warn{" "}
@@ -132,7 +160,7 @@ export function EyeGazeDebugPanel({
         {EYE_GAZE_PROLONGED_THRESHOLD_MS / 1000}s
       </p>
       <p className="mt-1 text-[9px] text-muted-foreground">
-        window.__codeshieldEyeGaze.summary()
+        window.__codeshieldEyeGaze.summary() · recalibrate()
       </p>
     </div>
   );
