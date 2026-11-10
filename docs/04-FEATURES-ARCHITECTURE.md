@@ -239,14 +239,14 @@ createNotification (dedupe key, never throws)
         ↓
 Notification for one userId
         ↓
-workspace-shell polls getNotificationsAction every 30s
-        ↓
-processDueReminders (interview 30 min, assessment 1 hour)
+workspace-shell polls getNotificationsAction every 30s (read only)
         ↓
 Click → mark read → in-app link
 ```
 
-There is no queue and no email for these events.
+Reminders (interview 30 min, assessment start 1 hour) come from
+`POST /api/cron/notification-reminders` → `processDueReminders`.
+See `docs/REMINDER-SCHEDULER.md`. There is no queue and no email for these events.
 
 ## Certificates
 

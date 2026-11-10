@@ -106,14 +106,22 @@ Reschedule and cancel write the interview first, then notify. Reminders for canc
 Successful product write
   → events.ts builds title, message, link, dedupeKey
   → Notification
-  → bell poll (about 30 seconds) calls getNotificationsAction
-  → processDueReminders adds due reminders if missing
+  → bell poll (about 30 seconds) calls getNotificationsAction (read only)
   → user clicks
   → markNotificationReadAction sets read and readAt
   → router pushes the in-app link
 ```
 
-If nobody has the app open during a reminder window, that reminder is not created later. There is no background cron.
+Reminders are separate:
+
+```text
+External scheduler every 5 minutes
+  → POST /api/cron/notification-reminders (Authorization: Bearer CRON_SECRET)
+  → processDueReminders
+  → Notification (dedupeKey)
+```
+
+The bell does not generate reminders. See `docs/REMINDER-SCHEDULER.md`.
 
 ## Certificate flow
 

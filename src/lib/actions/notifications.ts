@@ -2,15 +2,19 @@
 
 import { requireSession } from "@/lib/auth-guards";
 import { connectDB } from "@/lib/db";
-import { createServerOp, debugLog } from "@/lib/debug";
-import { processDueReminders } from "@/lib/notifications/reminders";
+import { createServerOp } from "@/lib/debug";
 import {
-  listNotificationsForUser,
+  listNotificationPage,
+  listRecentNotificationsForUser,
   markAllNotificationsRead,
   markNotificationRead,
 } from "@/lib/notifications/queries";
 
-/** Any authenticated role (admin/student/interviewer) reads only their own notifications. */
+/**
+ * Read-only notification list for the header bell.
+ * Reminder generation is owned by /api/cron/notification-reminders
+ * (and scripts/run-notification-reminders.ts), not by this poll.
+ */
 export async function getNotificationsAction() {
   const op = createServerOp({
     domain: "NOTIFICATION",
@@ -22,16 +26,28 @@ export async function getNotificationsAction() {
     const session = await requireSession();
     op.auth(session.user);
     await connectDB();
-    try {
-      await processDueReminders();
-    } catch (error) {
-      debugLog("NOTIFICATION", "REMINDER_SWEEP_FAILED", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
     op.allowed({ action: "list_own_notifications", role: session.user.role });
 
-    const result = await listNotificationsForUser(session.user.id);
+    const result = await listRecentNotificationsForUser(session.user.id);
+    return op.respond(result);
+  } catch (error) {
+    return op.respondError(error);
+  }
+}
+
+export async function getNotificationPageAction(page = 1) {
+  const op = createServerOp({
+    domain: "NOTIFICATION",
+    operation: "PAGE",
+    source: "SERVER-ACTION",
+  });
+
+  try {
+    const session = await requireSession();
+    op.auth(session.user);
+    await connectDB();
+    op.allowed({ action: "page_own_notifications", role: session.user.role });
+    const result = await listNotificationPage(session.user.id, page);
     return op.respond(result);
   } catch (error) {
     return op.respondError(error);

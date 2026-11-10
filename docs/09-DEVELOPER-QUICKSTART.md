@@ -138,7 +138,7 @@ Do not delete these until a product change replaces the screens.
 ## Common mistakes
 
 - Editing `PlatformSettings` notification toggles and expecting email. SMTP is only used for OTP.
-- Looking for a cron for reminders. The bell poll runs `processDueReminders`.
+- Looking for reminder generation in the bell poll. Reminders run via `POST /api/cron/notification-reminders` or `scripts/run-notification-reminders.ts` — see `docs/REMINDER-SCHEDULER.md`.
 - Putting LiveKit secrets in `NEXT_PUBLIC_*`. The token route is the only client path.
 - Running student code with `child_process` in a server action. Add a case in `runner.ts` instead.
 - Showing `riskScore` on a student result. That page is intentionally free of it.

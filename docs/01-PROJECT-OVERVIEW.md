@@ -217,7 +217,7 @@ Who uses it: the user the event belongs to. Admins do not see other people's bel
 
 Main entry: `src/components/layout/workspace-shell.tsx` and `src/lib/notifications/events.ts`.
 
-Depends on: `Notification`. There is no email or push channel. Reminders run when someone polls the bell (about every 30 seconds), not on a cron.
+Depends on: `Notification`. There is no email or push channel. Reminders run from `POST /api/cron/notification-reminders` (external scheduler every 5 minutes) or the manual script. The bell only displays them.
 
 ### Reports and analytics
 
@@ -261,7 +261,7 @@ Three security toggles become the default for new assessments: face verification
 | LiveKit room | IMPLEMENTED, NEEDS REAL-WORLD QA with real credentials |
 | LiveKit egress | PARTIAL. Requires S3. Default local storage uses the browser recorder instead |
 | AI subjective suggestion | PARTIAL. Optional, not persisted, manual save is the real write |
-| In-app notifications and reminders | PRODUCTION for in-app. Email, push, and cron are DEFERRED |
+| In-app notifications and reminders | PRODUCTION for in-app. Email/push DEFERRED. Reminder HTTP cron ready; wire an external every-5-min scheduler with `CRON_SECRET` (see `docs/REMINDER-SCHEDULER.md`) |
 | SMTP | PRODUCTION for OTP and password reset only, when SMTP is set. Otherwise the code is logged on the server in development |
 | Certificate verify and revoke | PRODUCTION |
 | Admin monitoring SSE | PRODUCTION |

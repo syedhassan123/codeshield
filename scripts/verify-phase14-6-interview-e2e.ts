@@ -38,6 +38,7 @@ import {
 } from "../src/lib/validators/interview-admin";
 import { submitInterviewEvaluationSchema } from "../src/lib/validators/interview-evaluation";
 import { Interview } from "../src/models/Interview";
+import { Notification } from "../src/models/Notification";
 import { InterviewEvaluation } from "../src/models/InterviewEvaluation";
 import { User } from "../src/models/User";
 
@@ -399,6 +400,25 @@ async function dbChecks() {
   assert(adminList.length >= 1, "admin list returns real interviews");
 
   await InterviewEvaluation.deleteOne({ interviewId: created._id });
+  await Notification.deleteMany({
+    dedupeKey: {
+      $in: [created._id, lifecycleInterview._id, staleTarget._id].map(
+        (id) => `interview:${id.toString()}:evaluation-pending:${kabirId}`,
+      ),
+    },
+  });
+  const pendingNotes = await Notification.find({
+    userId: kabirId,
+    type: "INTERVIEW_EVALUATION_PENDING",
+  })
+    .select("dedupeKey")
+    .lean();
+  for (const note of pendingNotes) {
+    const interviewId = note.dedupeKey?.split(":")[1];
+    if (!interviewId || !(await Interview.exists({ _id: interviewId }))) {
+      await Notification.deleteOne({ _id: note._id });
+    }
+  }
   await Interview.deleteOne({ _id: created._id });
   await Interview.deleteOne({ _id: lifecycleInterview._id });
   await Interview.deleteOne({ _id: staleTarget._id });
