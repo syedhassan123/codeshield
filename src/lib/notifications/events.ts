@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { debugLog } from "@/lib/debug";
 import { formatInterviewDateTime } from "@/lib/interviewer/format";
 import { createNotification } from "@/lib/notifications/create";
+import { InterviewEvaluation } from "@/models/InterviewEvaluation";
 import { User } from "@/models/User";
 
 /** Named, typed wrappers so every call site is self-documenting about
@@ -275,15 +276,25 @@ export async function notifyInterviewCancelled(params: {
   });
 }
 
+export function interviewEvaluationPendingDedupeKey(
+  interviewId: string,
+  interviewerId: string,
+) {
+  return `interview:${interviewId}:evaluation-pending:${interviewerId}`;
+}
+
 export async function notifyInterviewReminder(params: {
   interviewId: string;
   interviewTitle: string;
   scheduledAt: Date;
   candidateId: mongoose.Types.ObjectId | string;
   interviewerId: mongoose.Types.ObjectId | string;
+  /** Minutes before start. Callers pass INTERVIEW_REMINDER_LEAD_MS. */
+  leadMinutes?: number;
 }) {
   await safely("INTERVIEW_REMINDER", async () => {
     const when = whenLabel(params.scheduledAt);
+    const lead = params.leadMinutes ?? 30;
     const candidate = await loadActiveUser(params.candidateId);
     const interviewer = await loadActiveUser(params.interviewerId);
     const candidateName = candidate?.name ?? "the candidate";
@@ -292,8 +303,8 @@ export async function notifyInterviewReminder(params: {
       await createNotification({
         userId: params.candidateId,
         type: "INTERVIEW_REMINDER",
-        title: "Interview reminder",
-        message: `Your ${params.interviewTitle} interview starts at ${when}.`,
+        title: "Interview starting soon",
+        message: `Your ${params.interviewTitle} interview begins in ${lead} minutes (${when}).`,
         link: STUDENT_INTERVIEWS,
         dedupeKey: interviewReminderDedupeKey(
           params.interviewId,
@@ -307,8 +318,8 @@ export async function notifyInterviewReminder(params: {
       await createNotification({
         userId: params.interviewerId,
         type: "INTERVIEW_REMINDER",
-        title: "Interview reminder",
-        message: `Your ${params.interviewTitle} interview with ${candidateName} starts at ${when}.`,
+        title: "Interview starting soon",
+        message: `Your ${params.interviewTitle} interview with ${candidateName} begins in ${lead} minutes (${when}).`,
         link: INTERVIEWER_INTERVIEWS,
         dedupeKey: interviewReminderDedupeKey(
           params.interviewId,
@@ -317,6 +328,38 @@ export async function notifyInterviewReminder(params: {
         ),
       });
     }
+  });
+}
+
+/**
+ * One notice for the assigned interviewer after a real completion, and only
+ * when no evaluation document exists yet. Repeats are the same dedupe key.
+ */
+export async function notifyInterviewEvaluationPending(params: {
+  interviewId: string;
+  interviewTitle: string;
+  interviewerId: mongoose.Types.ObjectId | string;
+}) {
+  await safely("INTERVIEW_EVALUATION_PENDING", async () => {
+    const interviewerId = String(params.interviewerId);
+    const interviewer = await loadActiveUser(interviewerId);
+    if (!interviewer) return;
+    if (!mongoose.Types.ObjectId.isValid(params.interviewId)) return;
+    const existing = await InterviewEvaluation.exists({
+      interviewId: params.interviewId,
+    });
+    if (existing) return;
+    await createNotification({
+      userId: interviewerId,
+      type: "INTERVIEW_EVALUATION_PENDING",
+      title: "Evaluation pending",
+      message: `Complete the evaluation for ${params.interviewTitle}.`,
+      link: `/interviewer/evaluations/${params.interviewId}`,
+      dedupeKey: interviewEvaluationPendingDedupeKey(
+        params.interviewId,
+        interviewerId,
+      ),
+    });
   });
 }
 

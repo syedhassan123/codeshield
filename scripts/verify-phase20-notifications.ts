@@ -22,8 +22,10 @@ import {
   interviewReminderDedupeKey,
   interviewScheduleChanged,
   newlyAssignedStudentIds,
+  interviewEvaluationPendingDedupeKey,
   notifyAssessmentAssigned,
   notifyInterviewCancelled,
+  notifyInterviewEvaluationPending,
   notifyInterviewRescheduled,
   notifyInterviewScheduled,
 } from "../src/lib/notifications/events";
@@ -37,6 +39,7 @@ import { Assessment } from "../src/models/Assessment";
 import { Attempt } from "../src/models/Attempt";
 import { Certificate } from "../src/models/Certificate";
 import { Interview } from "../src/models/Interview";
+import { InterviewEvaluation } from "../src/models/InterviewEvaluation";
 import { Notification } from "../src/models/Notification";
 import { Result } from "../src/models/Result";
 import { User } from "../src/models/User";
@@ -186,14 +189,56 @@ function staticChecks() {
     "assessment reminders skip students who already finished an attempt",
   );
   assert(
-    actions.includes("processDueReminders"),
-    "the notification list sweep processes due reminders",
+    !actions.includes("processDueReminders"),
+    "notification list/page actions do not generate reminders (scheduler owns that)",
   );
   assert(shell.includes("No notifications yet."), "empty state has no mock notifications");
   assert(shell.includes("Mark all read"), "mark all read is available in the bell");
   assert(
     queries.includes(".sort({ createdAt: -1 })") && queries.includes("LIST_LIMIT = 20"),
     "notification list is newest-first and limited",
+  );
+  assert(
+    queries.includes("NOTIFICATION_RECENT_LIMIT = 8"),
+    "the bell loads a short recent list",
+  );
+  assert(
+    queries.includes("NOTIFICATION_PAGE_SIZE = 20"),
+    "notification history is page-sized",
+  );
+  assert(shell.includes("99+"), "unread badge caps at 99+");
+  assert(shell.includes("View all notifications"), "the bell links to the full history");
+  assert(
+    model.includes("INTERVIEW_EVALUATION_PENDING"),
+    "evaluation pending is a real notification type",
+  );
+  const lifecycle = read("src/lib/interviewer/lifecycle.ts");
+  const completeFn = lifecycle.slice(
+    lifecycle.indexOf("export async function completeOwnedInterview"),
+  );
+  assert(
+    completeFn.indexOf("notifyInterviewEvaluationPending") >
+      completeFn.indexOf('{ $set: { status: "completed" } }'),
+    "evaluation pending is created only after a completed transition",
+  );
+  const startFn = lifecycle.slice(
+    lifecycle.indexOf("export async function startOwnedInterview"),
+    lifecycle.indexOf("export async function completeOwnedInterview"),
+  );
+  assert(
+    !startFn.includes("notifyInterviewEvaluationPending"),
+    "starting an interview does not create an evaluation reminder",
+  );
+  const cron = read("src/app/api/cron/notification-reminders/route.ts");
+  assert(
+    cron.includes("CRON_SECRET") && cron.includes("processDueReminders"),
+    "reminder route is secret-gated and server-side",
+  );
+  assert(
+    fs.existsSync("src/app/student/notifications/page.tsx") &&
+      fs.existsSync("src/app/admin/notifications/page.tsx") &&
+      fs.existsSync("src/app/interviewer/(portal)/notifications/page.tsx"),
+    "each role has a notifications history page",
   );
   assert(
     !shell.includes("dangerouslySetInnerHTML"),
@@ -208,16 +253,24 @@ function pureChecks() {
 
   const now = new Date("2026-10-31T12:00:00.000Z");
   assert(
-    isDueForReminder(new Date(now.getTime() + 20 * 60 * 1000), now, INTERVIEW_REMINDER_LEAD_MS),
-    "interview inside the 30 minute window is due",
+    isDueForReminder(new Date(now.getTime() + 28 * 60 * 1000), now, INTERVIEW_REMINDER_LEAD_MS),
+    "interview whose dueAt is within the 5-minute grace is due",
+  );
+  assert(
+    !isDueForReminder(new Date(now.getTime() + 20 * 60 * 1000), now, INTERVIEW_REMINDER_LEAD_MS),
+    "interview still before dueAt is not due yet",
   );
   assert(
     !isDueForReminder(new Date(now.getTime() + 3 * 60 * 60 * 1000), now, INTERVIEW_REMINDER_LEAD_MS),
     "interview outside the reminder window is not due",
   );
   assert(
-    isDueForReminder(new Date(now.getTime() + 45 * 60 * 1000), now, ASSESSMENT_REMINDER_LEAD_MS),
-    "assessment inside the 1 hour window is due",
+    !isDueForReminder(new Date(now.getTime() - 60_000), now, INTERVIEW_REMINDER_LEAD_MS),
+    "interview whose scheduledAt already passed is not due",
+  );
+  assert(
+    isDueForReminder(new Date(now.getTime() + 58 * 60 * 1000), now, ASSESSMENT_REMINDER_LEAD_MS),
+    "assessment whose dueAt is within the 5-minute grace is due",
   );
   assert(
     !isDueForReminder(new Date(now.getTime() + 3 * 60 * 60 * 1000), now, ASSESSMENT_REMINDER_LEAD_MS),
@@ -280,6 +333,7 @@ async function dbChecks() {
   const extraInterviewIds: mongoose.Types.ObjectId[] = [];
   let fixtureAssessmentId: mongoose.Types.ObjectId | null = null;
   let fixtureAttemptId: mongoose.Types.ObjectId | null = null;
+  const evaluationIds: mongoose.Types.ObjectId[] = [];
   let riyaId: mongoose.Types.ObjectId | null = null;
   await Notification.deleteMany({ userId: { $in: userIds } });
 
@@ -486,7 +540,7 @@ async function dbChecks() {
       createdBy: admin!._id,
       title: "Phase 20 due reminder",
       type: "Technical",
-      scheduledAt: new Date(sweepNow.getTime() + 20 * 60 * 1000),
+      scheduledAt: new Date(sweepNow.getTime() + 28 * 60 * 1000),
       durationMin: 30,
       status: "scheduled",
     });
@@ -527,6 +581,54 @@ async function dbChecks() {
       completedInterview._id,
     );
 
+    const pendingKey = interviewEvaluationPendingDedupeKey(
+      completedInterview._id.toString(),
+      kabir!._id.toString(),
+    );
+    await notifyInterviewEvaluationPending({
+      interviewId: completedInterview._id.toString(),
+      interviewTitle: completedInterview.title,
+      interviewerId: kabir!._id,
+    });
+    await notifyInterviewEvaluationPending({
+      interviewId: completedInterview._id.toString(),
+      interviewTitle: completedInterview.title,
+      interviewerId: kabir!._id,
+    });
+    assert(
+      (await Notification.countDocuments({ dedupeKey: pendingKey })) === 1,
+      "a completed interview creates one evaluation-pending notification",
+    );
+    assert(
+      (await Notification.countDocuments({
+        dedupeKey: interviewEvaluationPendingDedupeKey(
+          completedInterview._id.toString(),
+          demo!._id.toString(),
+        ),
+      })) === 0,
+      "the candidate does not receive the evaluation reminder",
+    );
+
+    const evaluated = await InterviewEvaluation.create({
+      interviewId: completedInterview._id,
+      interviewerId: kabir!._id,
+      candidateId: demo!._id,
+      score: 80,
+      status: "submitted",
+      submittedAt: sweepNow,
+    });
+    evaluationIds.push(evaluated._id);
+    await Notification.deleteMany({ dedupeKey: pendingKey });
+    await notifyInterviewEvaluationPending({
+      interviewId: completedInterview._id.toString(),
+      interviewTitle: completedInterview.title,
+      interviewerId: kabir!._id,
+    });
+    assert(
+      (await Notification.countDocuments({ dedupeKey: pendingKey })) === 0,
+      "an interview that already has an evaluation is not reminded",
+    );
+
     const fixture = await Assessment.create({
       code: `ASM-P20-${Date.now()}`,
       title: "Phase 20 reminder fixture",
@@ -538,7 +640,7 @@ async function dbChecks() {
       totalMarks: 10,
       visibility: "assigned",
       assignedStudentIds: [demo!._id, rohan!._id],
-      scheduledAt: new Date(sweepNow.getTime() + 40 * 60 * 1000),
+      scheduledAt: new Date(sweepNow.getTime() + 58 * 60 * 1000),
       createdBy: admin!._id,
     });
     fixtureAssessmentId = fixture._id;
@@ -690,6 +792,9 @@ async function dbChecks() {
     if (fixtureAttemptId) await Attempt.deleteMany({ _id: fixtureAttemptId });
     if (fixtureAssessmentId) {
       await Assessment.deleteMany({ _id: fixtureAssessmentId });
+    }
+    if (evaluationIds.length) {
+      await InterviewEvaluation.deleteMany({ _id: { $in: evaluationIds } });
     }
   }
 }

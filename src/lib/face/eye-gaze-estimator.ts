@@ -200,6 +200,9 @@ function boundaryConfidence(fusedX: number, fusedY: number, direction: EyeGazeDi
 /**
  * Pure geometric eye-gaze estimate from Face Landmarker landmarks.
  * Does not mutate head-pose state. Heuristic confidence in [0, 1].
+ *
+ * `direction` here is the absolute-band diagnostic (0.35–0.65 CENTER).
+ * Student warnings use baseline-relative direction from eye-gaze-baseline.ts.
  */
 export function estimateEyeGaze(input: EstimateEyeGazeInput): EyeGazeEstimate {
   const { landmarks, headYaw, headPitch } = input;

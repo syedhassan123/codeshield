@@ -73,3 +73,40 @@ export const EYE_GAZE_PROLONGED_THRESHOLD_MS = 10_000;
 
 /** Client cooldown between persisted eye-gaze observation events (ms). */
 export const EYE_GAZE_EVENT_COOLDOWN_MS = 5_000;
+
+/**
+ * Neutral-baseline acquisition.
+ * INITIAL / NEEDS REAL WEBCAM TUNING — not production-calibrated.
+ * Samples are browser-only and never persisted.
+ */
+export const EYE_GAZE_BASELINE_MIN_SAMPLES = 8;
+export const EYE_GAZE_BASELINE_WINDOW = 10;
+
+/** Max fusedX range inside the sample window before a baseline may lock. */
+export const EYE_GAZE_BASELINE_MAX_X_SPREAD = 0.08;
+
+/** Max fusedY range. Vertical iris noise is slightly larger than horizontal. */
+export const EYE_GAZE_BASELINE_MAX_Y_SPREAD = 0.1;
+
+/**
+ * |yaw| / |pitch| (degrees) at or below which a frame may join the neutral baseline.
+ * Stricter than the eye UNKNOWN head gate so calibration happens while the head is straight.
+ */
+export const EYE_GAZE_BASELINE_MAX_ABS_YAW_DEG = 12;
+export const EYE_GAZE_BASELINE_MAX_ABS_PITCH_DEG = 12;
+
+/**
+ * Relative horizontal thresholds once a session baseline exists.
+ * deltaX = fusedX - baselineX.
+ * Synthetic geometry: lower fusedX is LEFT (iris offset 0.15 → LEFT), higher fusedX is RIGHT.
+ * INITIAL / NEEDS REAL WEBCAM TUNING. Not production-calibrated.
+ */
+export const EYE_GAZE_LEFT_DELTA_THRESHOLD = 0.12;
+export const EYE_GAZE_RIGHT_DELTA_THRESHOLD = 0.12;
+
+/**
+ * deltaY >= this → DOWN (image y increases downward).
+ * More conservative than the lateral thresholds so lower-screen reading stays CENTER longer.
+ * INITIAL / NEEDS REAL WEBCAM TUNING. Not production-calibrated.
+ */
+export const EYE_GAZE_DOWN_DELTA_THRESHOLD = 0.18;

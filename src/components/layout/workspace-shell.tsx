@@ -185,13 +185,13 @@ export function WorkspaceShell({
               <Bell className="w-4 h-4 text-muted-foreground" />
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-danger text-white text-[10px] font-semibold leading-4 text-center">
-                  {unreadCount > 9 ? "9+" : unreadCount}
+                  {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}
             </button>
 
             {notifOpen && (
-              <div className="absolute right-0 mt-2 w-80 max-h-[420px] overflow-y-auto rounded-xl border border-border bg-card shadow-elevated z-40">
+              <div className="absolute right-0 mt-2 w-[min(24rem,calc(100vw-1.5rem))] max-h-[min(420px,70vh)] overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-card shadow-elevated z-40">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <span className="text-sm font-semibold">Notifications</span>
                   {unreadCount > 0 && (
@@ -221,10 +221,10 @@ export function WorkspaceShell({
                             <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
                           )}
                           <div className="min-w-0 flex-1">
-                            <div className="text-sm font-semibold truncate">
+                            <div className="text-sm font-semibold break-words">
                               {item.title}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                            <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2 break-words">
                               {item.message}
                             </div>
                             <div className="text-[10px] text-muted-foreground mt-1">
@@ -240,6 +240,15 @@ export function WorkspaceShell({
                     No notifications yet.
                   </div>
                 )}
+                <div className="border-t border-border px-4 py-2.5">
+                  <Link
+                    href={`/${role}/notifications`}
+                    onClick={() => setNotifOpen(false)}
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    View all notifications
+                  </Link>
+                </div>
               </div>
             )}
           </div>

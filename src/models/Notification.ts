@@ -17,6 +17,7 @@ export const NOTIFICATION_TYPES = [
   "INTERVIEW_REMINDER",
   "ASSESSMENT_ASSIGNED",
   "ASSESSMENT_REMINDER",
+  "INTERVIEW_EVALUATION_PENDING",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

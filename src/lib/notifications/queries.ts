@@ -13,6 +13,31 @@ export type NotificationRow = {
 };
 
 const LIST_LIMIT = 20;
+/** Bell dropdown only. The history page uses NOTIFICATION_PAGE_SIZE. */
+export const NOTIFICATION_RECENT_LIMIT = 8;
+export const NOTIFICATION_PAGE_SIZE = 20;
+
+function toRow(n: {
+  _id: { toString(): string };
+  type: string;
+  title: string;
+  message: string;
+  link?: string | null;
+  read: boolean;
+  readAt?: Date | null;
+  createdAt: Date;
+}): NotificationRow {
+  return {
+    id: n._id.toString(),
+    type: n.type,
+    title: n.title,
+    message: n.message,
+    link: n.link ?? null,
+    read: n.read,
+    readAt: n.readAt ? new Date(n.readAt).toISOString() : null,
+    createdAt: n.createdAt.toISOString(),
+  };
+}
 
 export async function listNotificationsForUser(
   userId: string,
@@ -23,17 +48,45 @@ export async function listNotificationsForUser(
   ]);
 
   return {
-    notifications: items.map((n) => ({
-      id: n._id.toString(),
-      type: n.type,
-      title: n.title,
-      message: n.message,
-      link: n.link ?? null,
-      read: n.read,
-      readAt: n.readAt ? new Date(n.readAt).toISOString() : null,
-      createdAt: n.createdAt.toISOString(),
-    })),
+    notifications: items.map(toRow),
     unreadCount,
+  };
+}
+
+/** Latest items for the header bell. Unread count is still the full total. */
+export async function listRecentNotificationsForUser(userId: string) {
+  const [items, unreadCount] = await Promise.all([
+    Notification.find({ userId })
+      .sort({ createdAt: -1 })
+      .limit(NOTIFICATION_RECENT_LIMIT),
+    Notification.countDocuments({ userId, read: false }),
+  ]);
+
+  return {
+    notifications: items.map(toRow),
+    unreadCount,
+  };
+}
+
+export async function listNotificationPage(userId: string, page: number) {
+  const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+  const skip = (safePage - 1) * NOTIFICATION_PAGE_SIZE;
+  const [items, total, unreadCount] = await Promise.all([
+    Notification.find({ userId })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(NOTIFICATION_PAGE_SIZE),
+    Notification.countDocuments({ userId }),
+    Notification.countDocuments({ userId, read: false }),
+  ]);
+
+  return {
+    notifications: items.map(toRow),
+    unreadCount,
+    page: safePage,
+    pageSize: NOTIFICATION_PAGE_SIZE,
+    total,
+    hasMore: skip + items.length < total,
   };
 }
 

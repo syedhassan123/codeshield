@@ -2,8 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordExamSecurityEventAction } from "@/lib/actions/exam-security";
-import { pushEyeGazeCalibrationSample } from "@/lib/face/eye-gaze-calibration";
-import { EYE_GAZE_EVENT_COOLDOWN_MS } from "@/lib/face/eye-gaze-constants";
+import {
+  classifyGazeAgainstBaseline,
+  eyeGazeCalibrationStatusLabel,
+  EyeGazeBaselineTracker,
+  type EyeGazeBaselineState,
+} from "@/lib/face/eye-gaze-baseline";
+import {
+  bindEyeGazeRecalibrate,
+  pushEyeGazeCalibrationSample,
+} from "@/lib/face/eye-gaze-calibration";
+import {
+  EYE_GAZE_EVENT_COOLDOWN_MS,
+  EYE_GAZE_EXPECTED_LANDMARK_COUNT,
+} from "@/lib/face/eye-gaze-constants";
 import { EyeGazeSmoother } from "@/lib/face/eye-gaze-smoothing";
 import {
   computeEyeGazeWarningState,
@@ -18,6 +30,8 @@ type Options = {
   estimate: EyeGazeEstimate | null;
   attemptId?: string;
   headOrientation?: HeadOrientation;
+  /** False while the camera is off. A restart reacquires the baseline. */
+  cameraActive?: boolean;
 };
 
 const emptyTelemetry = (): EyeGazeTelemetry => ({
@@ -33,6 +47,15 @@ const emptyTelemetry = (): EyeGazeTelemetry => ({
   headYaw: null,
   headPitch: null,
   reason: "inactive",
+  baselineReady: false,
+  baselineSampleCount: 0,
+  baselineX: null,
+  baselineY: null,
+  baselineSpreadX: null,
+  baselineSpreadY: null,
+  deltaX: null,
+  deltaY: null,
+  calibrationStatus: "Tracking unavailable",
 });
 
 const emptyWarning = (): EyeGazeWarningState => ({
@@ -48,15 +71,45 @@ const emptyWarning = (): EyeGazeWarningState => ({
  * Temporal smoothing + independent eye-away warning + threshold SecurityEvents.
  * Does not drive or mutate head-pose warning timers.
  */
+function withBaseline(
+  telemetry: EyeGazeTelemetry,
+  baseline: EyeGazeBaselineState,
+  deltaX: number | null,
+  deltaY: number | null,
+  absoluteDirection: EyeGazeTelemetry["absoluteDirection"],
+  tracking: boolean,
+): EyeGazeTelemetry {
+  const lowConfidence = telemetry.reason === "low_confidence";
+  return {
+    ...telemetry,
+    absoluteDirection,
+    baselineReady: baseline.ready,
+    baselineSampleCount: baseline.sampleCount,
+    baselineX: baseline.x,
+    baselineY: baseline.y,
+    baselineSpreadX: baseline.spreadX,
+    baselineSpreadY: baseline.spreadY,
+    deltaX,
+    deltaY,
+    calibrationStatus: eyeGazeCalibrationStatusLabel({
+      tracking,
+      baselineReady: baseline.ready,
+      lowConfidence,
+    }),
+  };
+}
+
 export function useEyeGazeMonitoring({
   enabled,
   estimate,
   attemptId,
   headOrientation,
+  cameraActive = true,
 }: Options) {
   const [telemetry, setTelemetry] = useState<EyeGazeTelemetry>(emptyTelemetry);
   const [warning, setWarning] = useState<EyeGazeWarningState>(emptyWarning);
   const smootherRef = useRef<EyeGazeSmoother | null>(null);
+  const baselineRef = useRef(new EyeGazeBaselineTracker());
   const lastEstimateRef = useRef<EyeGazeEstimate | null>(null);
   const warningLoggedRef = useRef(false);
   const prolongedLoggedRef = useRef(false);
@@ -107,7 +160,23 @@ export function useEyeGazeMonitoring({
   }, []);
 
   useEffect(() => {
-    if (!enabled) {
+    if (process.env.NODE_ENV === "production") return;
+    bindEyeGazeRecalibrate(() => {
+      baselineRef.current.reset();
+      smootherRef.current?.reset();
+      lastEstimateRef.current = null;
+      resetEpisodeFlags();
+      setTelemetry(emptyTelemetry());
+      setWarning(emptyWarning());
+    });
+    return () => bindEyeGazeRecalibrate(null);
+  }, [resetEpisodeFlags]);
+
+  useEffect(() => {
+    // Camera off, exam end, or monitoring disabled: drop the baseline.
+    // A later camera restart acquires a new one (position may have changed).
+    if (!enabled || !cameraActive) {
+      baselineRef.current.reset();
       smootherRef.current?.reset();
       smootherRef.current = null;
       lastEstimateRef.current = null;
@@ -117,16 +186,30 @@ export function useEyeGazeMonitoring({
       return;
     }
     smootherRef.current ??= new EyeGazeSmoother();
-  }, [enabled, resetEpisodeFlags]);
+  }, [enabled, cameraActive, resetEpisodeFlags]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !cameraActive) return;
     if (!estimate) {
+      // Face loss: stop the eye episode, keep the locked baseline.
       if (lastEstimateRef.current) {
         lastEstimateRef.current = null;
         smootherRef.current?.reset();
         resetEpisodeFlags();
-        setTelemetry(emptyTelemetry());
+        const retained = baselineRef.current.state;
+        setTelemetry(
+          withBaseline(
+            {
+              ...emptyTelemetry(),
+              reason: "face_unavailable",
+            },
+            retained,
+            null,
+            null,
+            undefined,
+            false,
+          ),
+        );
         setWarning(emptyWarning());
       }
       return;
@@ -135,9 +218,29 @@ export function useEyeGazeMonitoring({
     if (estimate === lastEstimateRef.current) return;
     lastEstimateRef.current = estimate;
 
+    const baseline = baselineRef.current.consider(
+      estimate,
+      headOrientationRef.current,
+    );
+    const classified = classifyGazeAgainstBaseline(estimate, baseline);
+
     const smoother = smootherRef.current ?? new EyeGazeSmoother();
     smootherRef.current = smoother;
-    const next = smoother.push(estimate, Date.now());
+    const smoothed = smoother.push(classified.estimate, Date.now());
+    const next = withBaseline(
+      smoothed,
+      baseline,
+      classified.deltaX,
+      classified.deltaY,
+      estimate.direction,
+      estimate.landmarkCount === EYE_GAZE_EXPECTED_LANDMARK_COUNT &&
+        estimate.fusedNormalizedX != null &&
+        estimate.reason !== "eyes_unusable" &&
+        estimate.reason !== "missing_fused_ratio" &&
+        estimate.reason !== "eyes_disagree" &&
+        estimate.reason !== "extreme_head_pose" &&
+        !estimate.reason?.startsWith("landmark_count"),
+    );
     const nextWarning = computeEyeGazeWarningState({
       stableDirection: next.stableDirection,
       durationMs: next.durationMs,
@@ -190,9 +293,13 @@ export function useEyeGazeMonitoring({
         yaw: next.headYaw != null ? Math.round(next.headYaw) : null,
         pitch: next.headPitch != null ? Math.round(next.headPitch) : null,
         reason: next.reason,
+        baselineReady: next.baselineReady,
+        deltaX: next.deltaX,
+        deltaY: next.deltaY,
+        calibrationStatus: next.calibrationStatus,
       });
     }
-  }, [enabled, estimate, persistEvent, resetEpisodeFlags]);
+  }, [enabled, cameraActive, estimate, persistEvent, resetEpisodeFlags]);
 
   return {
     telemetry,

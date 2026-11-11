@@ -1,5 +1,6 @@
 import { ActionError } from "@/lib/auth-guards";
 import { isValidObjectId } from "@/lib/interviewer/queries";
+import { notifyInterviewEvaluationPending } from "@/lib/notifications/events";
 import { Interview } from "@/models/Interview";
 import type { InterviewStatus } from "@/types/interview";
 
@@ -75,6 +76,11 @@ export async function completeOwnedInterview(
   ).lean();
 
   if (completed) {
+    await notifyInterviewEvaluationPending({
+      interviewId: completed._id.toString(),
+      interviewTitle: completed.title,
+      interviewerId: completed.interviewerId,
+    });
     return completed;
   }
 
