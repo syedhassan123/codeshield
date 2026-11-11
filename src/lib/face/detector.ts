@@ -22,7 +22,7 @@ export async function getFaceDetector(): Promise<MpFaceDetector> {
       return FaceDetector.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath: FACE_DETECTOR_MODEL_URL,
-          delegate: "GPU",
+         delegate: "CPU",   // GPU se change karein
         },
         runningMode: "VIDEO",
         minDetectionConfidence: 0.5,

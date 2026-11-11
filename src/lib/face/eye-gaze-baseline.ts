@@ -173,6 +173,36 @@ export class EyeGazeBaselineTracker {
   }
 }
 
+// function separationConfidence(
+//   base: number,
+//   direction: EyeGazeDirection,
+//   deltaX: number,
+//   deltaY: number,
+// ): number {
+//   let separation = 1;
+//   if (direction === "LEFT") {
+//     const past = -deltaX - EYE_GAZE_LEFT_DELTA_THRESHOLD;
+//     separation = Math.min(1, Math.max(0.55, 0.55 + past / 0.12));
+//   } else if (direction === "RIGHT") {
+//     const past = deltaX - EYE_GAZE_RIGHT_DELTA_THRESHOLD;
+//     separation = Math.min(1, Math.max(0.55, 0.55 + past / 0.12));
+//   } else if (direction === "DOWN") {
+//     const past = deltaY - EYE_GAZE_DOWN_DELTA_THRESHOLD;
+//     separation = Math.min(1, Math.max(0.55, 0.55 + past / 0.16));
+//   } else if (direction === "CENTER") {
+//     const nx = Math.abs(deltaX) / EYE_GAZE_LEFT_DELTA_THRESHOLD;
+//     const ny = Math.max(0, deltaY) / EYE_GAZE_DOWN_DELTA_THRESHOLD;
+//     separation = Math.min(1, Math.max(0.5, 1 - 0.4 * Math.max(nx, ny)));
+//   }
+//   return Math.min(1, Math.max(0, base * separation));
+// }
+
+
+
+
+
+
+
 function separationConfidence(
   base: number,
   direction: EyeGazeDirection,
@@ -182,13 +212,16 @@ function separationConfidence(
   let separation = 1;
   if (direction === "LEFT") {
     const past = -deltaX - EYE_GAZE_LEFT_DELTA_THRESHOLD;
-    separation = Math.min(1, Math.max(0.55, 0.55 + past / 0.12));
+    // Hardcoded 0.12 ki jagah constant use karein
+    separation = Math.min(1, Math.max(0.55, 0.55 + past / EYE_GAZE_LEFT_DELTA_THRESHOLD));
   } else if (direction === "RIGHT") {
     const past = deltaX - EYE_GAZE_RIGHT_DELTA_THRESHOLD;
-    separation = Math.min(1, Math.max(0.55, 0.55 + past / 0.12));
+    // Hardcoded 0.12 ki jagah constant use karein
+    separation = Math.min(1, Math.max(0.55, 0.55 + past / EYE_GAZE_RIGHT_DELTA_THRESHOLD));
   } else if (direction === "DOWN") {
     const past = deltaY - EYE_GAZE_DOWN_DELTA_THRESHOLD;
-    separation = Math.min(1, Math.max(0.55, 0.55 + past / 0.16));
+    // Hardcoded 0.16 ki jagah constant use karein
+    separation = Math.min(1, Math.max(0.55, 0.55 + past / EYE_GAZE_DOWN_DELTA_THRESHOLD));
   } else if (direction === "CENTER") {
     const nx = Math.abs(deltaX) / EYE_GAZE_LEFT_DELTA_THRESHOLD;
     const ny = Math.max(0, deltaY) / EYE_GAZE_DOWN_DELTA_THRESHOLD;
@@ -196,6 +229,7 @@ function separationConfidence(
   }
   return Math.min(1, Math.max(0, base * separation));
 }
+
 
 /**
  * Primary direction after a baseline exists.

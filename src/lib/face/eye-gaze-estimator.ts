@@ -63,9 +63,12 @@ function unknownEstimate(
 function pointOk(p: GazeLandmarkPoint | undefined): p is GazeLandmarkPoint {
   if (!p) return false;
   if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return false;
+  // Face Landmarker doesn't populate visibility (always 0) — unlike Pose
+  // Landmarker, so 0 means "unknown", not "occluded". Only reject when the
+  // value is a genuine partial-visibility signal (> 0 and below threshold).
   if (
     typeof p.visibility === "number" &&
-    Number.isFinite(p.visibility) &&
+    p.visibility > 0 &&
     p.visibility < EYE_GAZE_MIN_VISIBILITY
   ) {
     return false;
@@ -88,6 +91,23 @@ function measureEye(
   const upper = landmarks[indices.upper];
   const lower = landmarks[indices.lower];
   const iris = landmarks[indices.irisCenter];
+
+
+if (process.env.NODE_ENV === "development") {
+  console.log("[EYE-MEASURE]", {
+    vis: [outer, inner, upper, lower, iris].map((p) => p?.visibility),
+    minVis: EYE_GAZE_MIN_VISIBILITY,
+    w: Math.abs((outer?.x ?? 0) - (inner?.x ?? 0)),
+    h: Math.abs((upper?.y ?? 0) - (lower?.y ?? 0)),
+    minW: EYE_GAZE_MIN_EYE_WIDTH,
+    minH: EYE_GAZE_MIN_EYE_HEIGHT,
+    ny: iris && upper && lower
+      ? (iris.y - Math.min(upper.y, lower.y)) /
+        Math.abs(upper.y - lower.y)
+      : null,
+  });
+}
+
 
   if (
     !pointOk(outer) ||

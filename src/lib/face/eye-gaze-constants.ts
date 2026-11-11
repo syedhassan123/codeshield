@@ -27,7 +27,7 @@ export const EYE_GAZE_HORIZONTAL_CENTER_MAX = 0.65;
 export const EYE_GAZE_DOWN_THRESHOLD = 0.68;
 
 /** Heuristic confidence below this → force UNKNOWN. INITIAL / UNVALIDATED. */
-export const EYE_GAZE_MIN_CONFIDENCE = 0.35;
+export const EYE_GAZE_MIN_CONFIDENCE = 0.20;
 
 /**
  * Absolute difference between left/right eye horizontal ratios that forces UNKNOWN.
@@ -83,10 +83,10 @@ export const EYE_GAZE_BASELINE_MIN_SAMPLES = 8;
 export const EYE_GAZE_BASELINE_WINDOW = 10;
 
 /** Max fusedX range inside the sample window before a baseline may lock. */
-export const EYE_GAZE_BASELINE_MAX_X_SPREAD = 0.08;
+export const EYE_GAZE_BASELINE_MAX_X_SPREAD = 0.15;
 
 /** Max fusedY range. Vertical iris noise is slightly larger than horizontal. */
-export const EYE_GAZE_BASELINE_MAX_Y_SPREAD = 0.1;
+export const EYE_GAZE_BASELINE_MAX_Y_SPREAD = 0.15;
 
 /**
  * |yaw| / |pitch| (degrees) at or below which a frame may join the neutral baseline.
@@ -101,12 +101,12 @@ export const EYE_GAZE_BASELINE_MAX_ABS_PITCH_DEG = 12;
  * Synthetic geometry: lower fusedX is LEFT (iris offset 0.15 → LEFT), higher fusedX is RIGHT.
  * INITIAL / NEEDS REAL WEBCAM TUNING. Not production-calibrated.
  */
-export const EYE_GAZE_LEFT_DELTA_THRESHOLD = 0.12;
-export const EYE_GAZE_RIGHT_DELTA_THRESHOLD = 0.12;
+export const EYE_GAZE_LEFT_DELTA_THRESHOLD = 0.06;
+export const EYE_GAZE_RIGHT_DELTA_THRESHOLD = 0.06;
 
 /**
  * deltaY >= this → DOWN (image y increases downward).
  * More conservative than the lateral thresholds so lower-screen reading stays CENTER longer.
  * INITIAL / NEEDS REAL WEBCAM TUNING. Not production-calibrated.
  */
-export const EYE_GAZE_DOWN_DELTA_THRESHOLD = 0.18;
+export const EYE_GAZE_DOWN_DELTA_THRESHOLD = 0.10;
