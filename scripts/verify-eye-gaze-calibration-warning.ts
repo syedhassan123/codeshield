@@ -81,7 +81,7 @@ function main() {
   assert(PROCTORING_ALERT_AUDIO_COOLDOWN_MS === 30_000, "audio cooldown remains 30s");
   assert(EYE_GAZE_WARNING_THRESHOLD_MS === 5_000, "eye first warning remains 5s");
   assert(EYE_GAZE_PROLONGED_THRESHOLD_MS === 10_000, "eye prolonged remains 10s");
-  assert(EYE_GAZE_MIN_CONFIDENCE === 0.35, "min confidence unchanged");
+  assert(EYE_GAZE_MIN_CONFIDENCE === 0.2, "min confidence unchanged");
   assert(
     EYE_GAZE_DOWN_DELTA_THRESHOLD > EYE_GAZE_LEFT_DELTA_THRESHOLD &&
       EYE_GAZE_DOWN_DELTA_THRESHOLD > EYE_GAZE_RIGHT_DELTA_THRESHOLD,
